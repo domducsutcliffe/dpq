@@ -363,7 +363,10 @@ async function fetchJson(url, tries = 5) {
   let lastError;
   for (let attempt = 1; attempt <= tries; attempt += 1) {
     try {
-      const response = await fetch(url);
+      // Without a timeout a stalled socket hangs this await forever and the retry
+      // logic below never runs — a long refresh can silently wedge on one bad
+      // connection. Abort slow requests so they fall through to a retry instead.
+      const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
       if (!response.ok) {
         const error = new Error(`${response.status} ${response.statusText}`);
         error.status = response.status;
