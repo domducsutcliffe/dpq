@@ -458,9 +458,16 @@ function needsFullAnswer(q) {
   return !text || text.length >= 255 || /\.\.\.$/.test(text);
 }
 
+// A complete question always ends in sentence punctuation. The list endpoint caps
+// questionText at 255 chars — 254 once stripHtml trims the trailing space — so the
+// old `length >= 255` test never fired. Detect truncation by the missing full stop
+// instead: anything not ending in . ? or ! was cut off and needs the detail
+// endpoint's full text (what Parliament hides behind "show full question").
 function needsFullQuestion(q) {
   if (!q.id || q.questionFull) return false;
-  return (q.questionText || "").length >= 255;
+  const text = (q.questionText || "").trim();
+  if (!text) return false;
+  return !/[.?!]["')\]]*$/.test(text);
 }
 
 async function enrichFullAnswers(questions) {
