@@ -299,7 +299,7 @@ function renderRecentButtons() {
 
   todayBtn.hidden = false;
   threeBtn.hidden = false;
-  todayBtn.textContent = `Today · ${shortDate(r.today)}`;
+  todayBtn.textContent = `Last tabling day · ${shortDate(r.today)}`;
   threeBtn.textContent = `Last ${r.threeDayCount} tabling days`;
 
   const todayActive = state.tabledSince === r.today;
@@ -308,7 +308,7 @@ function renderRecentButtons() {
   threeBtn.classList.toggle("active", threeActive);
   todayBtn.setAttribute("aria-pressed", String(todayActive));
   threeBtn.setAttribute("aria-pressed", String(threeActive));
-  todayBtn.title = `Questions tabled on ${shortDate(r.today)} — the most recent day questions were tabled`;
+  todayBtn.title = `Questions tabled on ${shortDate(r.today)} — the most recent day on which questions were tabled`;
   threeBtn.title = `Questions from the last ${r.threeDayCount} days on which questions were tabled (${shortDate(r.threeDays)} to ${shortDate(r.latest)})`;
 }
 
