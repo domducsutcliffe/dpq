@@ -272,18 +272,18 @@ function latestTabledDate() {
   );
 }
 
-function shiftDays(dateStr, days) {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-// "Past three days" is a three-calendar-day span ending on the latest tabling day,
-// i.e. that day plus the two calendar days before it.
+// The three most recent days on which questions were actually tabled — not three
+// calendar days. Parliament doesn't sit every day (recess, weekends), so a calendar
+// span would often cover only one real tabling day.
 function recentRanges() {
-  const latest = latestTabledDate();
-  if (!latest) return null;
-  return { latest, today: latest, threeDays: shiftDays(latest, -2) };
+  const days = [...new Set(state.questions.map((q) => q.dateTabled).filter(Boolean))].sort().reverse();
+  if (!days.length) return null;
+  return {
+    latest: days[0],
+    today: days[0],
+    threeDays: days[Math.min(2, days.length - 1)],
+    threeDayCount: Math.min(3, days.length),
+  };
 }
 
 function renderRecentButtons() {
@@ -300,7 +300,7 @@ function renderRecentButtons() {
   todayBtn.hidden = false;
   threeBtn.hidden = false;
   todayBtn.textContent = `Today · ${shortDate(r.today)}`;
-  threeBtn.textContent = "Past 3 days";
+  threeBtn.textContent = `Last ${r.threeDayCount} tabling days`;
 
   const todayActive = state.tabledSince === r.today;
   const threeActive = state.tabledSince === r.threeDays;
@@ -309,7 +309,7 @@ function renderRecentButtons() {
   todayBtn.setAttribute("aria-pressed", String(todayActive));
   threeBtn.setAttribute("aria-pressed", String(threeActive));
   todayBtn.title = `Questions tabled on ${shortDate(r.today)} — the most recent day questions were tabled`;
-  threeBtn.title = `Questions tabled ${shortDate(r.threeDays)} to ${shortDate(r.latest)}`;
+  threeBtn.title = `Questions from the last ${r.threeDayCount} days on which questions were tabled (${shortDate(r.threeDays)} to ${shortDate(r.latest)})`;
 }
 
 function shortDate(value) {
