@@ -266,7 +266,7 @@ function parseDate(value) {
 
 // ── Similar questions (BETA) ─────────────────────────────────────────────────
 // TF-IDF cosine similarity over heading + question text, built lazily in the browser
-// (~40ms for 3,000 questions, ~3ms per lookup). Every PQ opens with the same formula
+// over the current Parliament only (~1ms per lookup). Every PQ opens with the same formula
 // ("To ask the Secretary of State…"), so that opener is stripped and IDF damps the rest
 // of the shared boilerplate — what's left is the distinctive subject matter.
 const SIMILAR_STOPWORDS = new Set(
@@ -277,6 +277,10 @@ const SIMILAR_STOPWORDS = new Set(
 );
 const PQ_OPENER = /^to ask the (secretary of state|minister)[^,]*,\s*/i;
 const SIMILAR_MIN_SCORE = 0.12;
+// Similar questions are drawn from the current Parliament only. A wording match against
+// a PQ tabled before the 2024 dissolution is answered by a different government under
+// different policy, so it reads as a comparator when it isn't one.
+const SIMILAR_PERIOD = PERIODS.current;
 let similarityIndex = null;
 
 function similarityTokens(text) {
@@ -287,48 +291,70 @@ function similarityTokens(text) {
     .filter((t) => t.length > 2 && !SIMILAR_STOPWORDS.has(t));
 }
 
-function buildSimilarityIndex() {
-  const docs = state.questions.map((q) => {
-    const body = String(q.questionText || "").replace(PQ_OPENER, "");
-    const tf = new Map();
-    for (const t of similarityTokens(`${q.heading || ""} ${body}`)) {
-      tf.set(t, (tf.get(t) || 0) + 1);
+function inSimilarPeriod(question) {
+  const date = question.dateTabled || "";
+  if (!date || date < SIMILAR_PERIOD.start) return false;
+  if (SIMILAR_PERIOD.end && date >= SIMILAR_PERIOD.end) return false;
+  return true;
+}
+
+function similarityTermFrequencies(question) {
+  const body = String(question.questionText || "").replace(PQ_OPENER, "");
+  const tf = new Map();
+  for (const t of similarityTokens(`${question.heading || ""} ${body}`)) {
+    tf.set(t, (tf.get(t) || 0) + 1);
+  }
+  return tf;
+}
+
+// TF-IDF weights, L2-normalised so a dot product between two vectors is their cosine.
+function similarityVector(tf, df, total) {
+  const vec = new Map();
+  let norm = 0;
+  for (const [t, f] of tf) {
+    const weight = (1 + Math.log(f)) * Math.log(total / (1 + (df.get(t) || 0)));
+    if (weight > 0) {
+      vec.set(t, weight);
+      norm += weight * weight;
     }
-    return { q, tf };
-  });
+  }
+  norm = Math.sqrt(norm) || 1;
+  for (const [t, w] of vec) vec.set(t, w / norm);
+  return vec;
+}
+
+function buildSimilarityIndex() {
+  const questions = state.questions.filter(inSimilarPeriod);
+  const frequencies = questions.map(similarityTermFrequencies);
 
   const df = new Map();
-  for (const d of docs) for (const t of d.tf.keys()) df.set(t, (df.get(t) || 0) + 1);
+  for (const tf of frequencies) for (const t of tf.keys()) df.set(t, (df.get(t) || 0) + 1);
 
-  const total = docs.length;
-  for (const d of docs) {
-    const vec = new Map();
-    let norm = 0;
-    for (const [t, f] of d.tf) {
-      const weight = (1 + Math.log(f)) * Math.log(total / (1 + (df.get(t) || 0)));
-      if (weight > 0) {
-        vec.set(t, weight);
-        norm += weight * weight;
-      }
-    }
-    norm = Math.sqrt(norm) || 1;
-    for (const [t, w] of vec) vec.set(t, w / norm);
-    d.vec = vec;
-    d.tf = null; // no longer needed; keep the index small
-  }
+  const total = frequencies.length;
+  const docs = questions.map((q, i) => ({ q, vec: similarityVector(frequencies[i], df, total) }));
 
-  similarityIndex = { docs, byId: new Map(docs.map((d) => [d.q.id, d])) };
+  // df and total are kept so a question outside the corpus can still be scored against it.
+  similarityIndex = { docs, df, total, byId: new Map(docs.map((d) => [d.q.id, d])) };
 }
 
 function findSimilarQuestions(question, limit = 3) {
   if (!similarityIndex) buildSimilarityIndex();
-  const target = similarityIndex.byId.get(question.id);
-  if (!target) return [];
+  if (!similarityIndex.total) return [];
+  // The anchor question may sit outside the current Parliament (the period filter can be
+  // widened), so fall back to scoring it against the corpus with that corpus's IDF weights.
+  const indexed = similarityIndex.byId.get(question.id);
+  const targetVec = indexed
+    ? indexed.vec
+    : similarityVector(
+        similarityTermFrequencies(question),
+        similarityIndex.df,
+        similarityIndex.total,
+      );
   const scored = [];
   for (const d of similarityIndex.docs) {
     if (d.q.id === question.id) continue;
     // Walk the smaller vector; both are L2-normalised so the dot product is the cosine.
-    const [small, large] = target.vec.size < d.vec.size ? [target.vec, d.vec] : [d.vec, target.vec];
+    const [small, large] = targetVec.size < d.vec.size ? [targetVec, d.vec] : [d.vec, targetVec];
     let score = 0;
     for (const [t, w] of small) {
       const other = large.get(t);
@@ -1504,14 +1530,14 @@ function openSimilarPanel(anchor, question) {
             </li>`,
         )
         .join("")
-    : `<li class="similar-empty">No closely similar questions found.</li>`;
+    : `<li class="similar-empty">No closely similar questions in the current Parliament.</li>`;
 
   panel.innerHTML = `
     <div class="similar-head">
       <span>Similar questions <span class="beta-badge">BETA</span></span>
       <button type="button" class="similar-close" aria-label="Close">✕</button>
     </div>
-    <p class="similar-note">Matched on wording, not meaning — treat as a starting point, not a definitive set.</p>
+    <p class="similar-note">Current Parliament only (from ${escapeHtml(shortDate(SIMILAR_PERIOD.start))}). Matched on wording, not meaning — treat as a starting point, not a definitive set.</p>
     <ul class="similar-list">${rows}</ul>`;
 
   panel.hidden = false;
