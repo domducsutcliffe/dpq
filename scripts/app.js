@@ -277,9 +277,10 @@ const SIMILAR_STOPWORDS = new Set(
 );
 const PQ_OPENER = /^to ask the (secretary of state|minister)[^,]*,\s*/i;
 const SIMILAR_MIN_SCORE = 0.12;
-// Similar questions are drawn from the current Parliament only. A wording match against
-// a PQ tabled before the 2024 dissolution is answered by a different government under
-// different policy, so it reads as a comparator when it isn't one.
+// Similar questions are drawn from answered PQs in the current Parliament only. A wording
+// match against a PQ tabled before the 2024 dissolution is answered by a different
+// government under different policy, so it reads as a comparator when it isn't one; and
+// an unanswered one has nothing to compare — the answer is the thing you came for.
 const SIMILAR_PERIOD = PERIODS.current;
 let similarityIndex = null;
 
@@ -291,7 +292,8 @@ function similarityTokens(text) {
     .filter((t) => t.length > 2 && !SIMILAR_STOPWORDS.has(t));
 }
 
-function inSimilarPeriod(question) {
+function isSimilarCandidate(question) {
+  if (!question.answered) return false;
   const date = question.dateTabled || "";
   if (!date || date < SIMILAR_PERIOD.start) return false;
   if (SIMILAR_PERIOD.end && date >= SIMILAR_PERIOD.end) return false;
@@ -324,7 +326,7 @@ function similarityVector(tf, df, total) {
 }
 
 function buildSimilarityIndex() {
-  const questions = state.questions.filter(inSimilarPeriod);
+  const questions = state.questions.filter(isSimilarCandidate);
   const frequencies = questions.map(similarityTermFrequencies);
 
   const df = new Map();
@@ -340,8 +342,9 @@ function buildSimilarityIndex() {
 function findSimilarQuestions(question, limit = 3) {
   if (!similarityIndex) buildSimilarityIndex();
   if (!similarityIndex.total) return [];
-  // The anchor question may sit outside the current Parliament (the period filter can be
-  // widened), so fall back to scoring it against the corpus with that corpus's IDF weights.
+  // The anchor question is often the one still waiting for an answer, and may sit outside
+  // the current Parliament (the period filter can be widened) — either way it can be
+  // absent from the corpus, so score it against that corpus's IDF weights instead.
   const indexed = similarityIndex.byId.get(question.id);
   const targetVec = indexed
     ? indexed.vec
@@ -1530,14 +1533,14 @@ function openSimilarPanel(anchor, question) {
             </li>`,
         )
         .join("")
-    : `<li class="similar-empty">No closely similar questions in the current Parliament.</li>`;
+    : `<li class="similar-empty">No closely similar answered questions in the current Parliament.</li>`;
 
   panel.innerHTML = `
     <div class="similar-head">
       <span>Similar questions <span class="beta-badge">BETA</span></span>
       <button type="button" class="similar-close" aria-label="Close">✕</button>
     </div>
-    <p class="similar-note">Current Parliament only (from ${escapeHtml(shortDate(SIMILAR_PERIOD.start))}). Matched on wording, not meaning — treat as a starting point, not a definitive set.</p>
+    <p class="similar-note">Answered questions from the current Parliament only (from ${escapeHtml(shortDate(SIMILAR_PERIOD.start))}). Matched on wording, not meaning — treat as a starting point, not a definitive set.</p>
     <ul class="similar-list">${rows}</ul>`;
 
   panel.hidden = false;
