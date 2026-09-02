@@ -1493,13 +1493,14 @@ function openSimilarPanel(anchor, question) {
           (h) => `
             <li class="similar-item">
               <div class="similar-meta">
-                <a href="${escapeHtml(h.question.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(h.question.uin)}</a>
+                <span class="similar-uin">UIN ${escapeHtml(h.question.uin)}</span>
                 <span>${escapeHtml(shortDate(h.question.dateTabled))}</span>
                 <span>${escapeHtml(h.question.member.name || "-")}</span>
                 <span class="similar-score" title="Similarity score">${Math.round(h.score * 100)}%</span>
               </div>
               <div class="similar-heading">${escapeHtml(h.question.heading || "Written question")}</div>
               <div class="similar-text">${escapeHtml(String(h.question.questionText || "").replace(PQ_OPENER, ""))}</div>
+              <a class="similar-link" href="${escapeHtml(h.question.url)}" target="_blank" rel="noopener noreferrer">View on parliament.uk ↗</a>
             </li>`,
         )
         .join("")

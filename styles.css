@@ -183,8 +183,27 @@ a:hover {
   color: #000;
 }
 
+.similar-uin { font-weight: 700; color: #000; }
 .similar-heading { font-weight: 600; margin-bottom: 2px; }
 .similar-text { color: var(--muted); line-height: 1.45; }
+
+/* Explicit way through to the question on parliament.uk. */
+.similar-link {
+  display: inline-block;
+  margin-top: 6px;
+  color: #000;
+  background: var(--orange);
+  padding: 3px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-decoration: none;
+  border: 1px solid #000;
+}
+
+.similar-link:hover {
+  background: #000;
+  color: var(--orange);
+}
 .similar-empty { padding: 12px 10px; color: var(--muted); }
 
 /* Quick date filters: the latest tabling day, and the three days ending on it. */
