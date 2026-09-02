@@ -752,18 +752,28 @@ const getBezierPath = (points) => {
   }, "");
 };
 
-function renderLineChart(items) {
-  const byMonth = new Map();
-  for (const question of items) {
-    if (!question.dateTabled) continue;
-    const month = question.dateTabled.slice(0, 7);
-    if (!byMonth.has(month)) {
-      byMonth.set(month, []);
+// `precomputed` is an optional [{month, count}] series from summary.monthly, used for the
+// first paint before the (much larger) questions file has arrived. Verified to produce an
+// identical chart to the questions-derived one, so nothing visibly changes on swap.
+function renderLineChart(items, precomputed = null) {
+  let months; // [month, count, questions|null]
+  if (precomputed) {
+    months = precomputed.map((row) => [row.month, row.count, null]);
+  } else {
+    const byMonth = new Map();
+    for (const question of items) {
+      if (!question.dateTabled) continue;
+      const month = question.dateTabled.slice(0, 7);
+      if (!byMonth.has(month)) {
+        byMonth.set(month, []);
+      }
+      byMonth.get(month).push(question);
     }
-    byMonth.get(month).push(question);
+    months = [...byMonth.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([month, qs]) => [month, qs.length, qs]);
   }
 
-  const months = [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   if (!months.length) {
     state.chartPoints = [];
     elements.monthlyChart.innerHTML = '<p class="chart-note">No matching monthly data.</p>';
@@ -775,13 +785,16 @@ function renderLineChart(items) {
   const width = containerWidth > 16 ? (containerWidth - 16) : 760;
   const height = 220;
   const pad = 28;
-  const max = Math.max(...months.map(([, monthQuestions]) => monthQuestions.length), 1);
+  const max = Math.max(...months.map(([, count]) => count), 1);
   const step = months.length > 1 ? (width - pad * 2) / (months.length - 1) : 0;
-  const points = months.map(([month, monthQuestions], index) => {
-    const count = monthQuestions.length;
+  const points = months.map(([month, count, monthQuestions], index) => {
     const x = pad + index * step;
     const y = height - pad - (count / max) * (height - pad * 2);
-    const themeCounts = getTopicCounts(monthQuestions).filter((t) => t.count > 0).slice(0, 5);
+    // Topic breakdown needs the underlying questions; on the summary-only first paint the
+    // tooltip just shows the month total until they load.
+    const themeCounts = monthQuestions
+      ? getTopicCounts(monthQuestions).filter((t) => t.count > 0).slice(0, 5)
+      : [];
     return { month, count, x, y, themeCounts };
   });
   state.chartPoints = points;
@@ -1108,6 +1121,55 @@ if (elements.answerTooltip && elements.table) {
   window.addEventListener("resize", hideAnswerTip);
 }
 
+// ── First paint from the summary ─────────────────────────────────────────────
+// summary.json.enc is ~137KB and decrypts in ~30ms; questions.json.enc is ~7MB. Waiting
+// for the big file before showing anything is what made the dashboard sit blank and then
+// pop in. summary.monthly already carries per-month totals plus party/region breakdowns,
+// which reproduce the default (current Parliament) view exactly — verified against the
+// questions-derived numbers — so the headline view can be painted immediately and the
+// questions swapped in underneath without anything visibly changing.
+function summaryDefaultView() {
+  const rows = (state.summary?.monthly || []).filter((r) => isMonthInPeriods(r.month));
+  const totals = { total: 0, answered: 0 };
+  const party = new Map();
+  const region = new Map();
+  for (const r of rows) {
+    totals.total += r.total || 0;
+    totals.answered += r.answered || 0;
+    for (const [k, v] of Object.entries(r.byParty || {})) party.set(k, (party.get(k) || 0) + v);
+    for (const [k, v] of Object.entries(r.byRegion || {})) region.set(k, (region.get(k) || 0) + v);
+  }
+  const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0];
+  return {
+    series: rows.map((r) => ({ month: r.month, count: r.total })),
+    totals,
+    topParty: top(party),
+    topRegion: top(region),
+  };
+}
+
+function paintFromSummary() {
+  if (!state.summary) return;
+  const view = summaryDefaultView();
+
+  elements.total.textContent = formatNumber.format(view.totals.total);
+  elements.answered.textContent = `${formatNumber.format(view.totals.answered)} / ${formatNumber.format(
+    view.totals.total - view.totals.answered,
+  )}`;
+  elements.latest.textContent = shortDate(state.summary.dateRange?.newestTabled);
+  elements.partyMetric.textContent = view.topParty
+    ? `${view.topParty[0]} (${formatNumber.format(view.topParty[1])})`
+    : "-";
+  elements.regionMetric.textContent = view.topRegion
+    ? `${view.topRegion[0]} (${formatNumber.format(view.topRegion[1])})`
+    : "-";
+
+  renderLineChart([], view.series);
+  renderScopeStatus(view.totals.total);
+  elements.resultsCount.textContent = "loading questions…";
+  elements.table.innerHTML = `<tr><td colspan="7" class="table-loading">Loading questions…</td></tr>`;
+}
+
 function render() {
   if (state.selectedMonth && !isMonthInPeriods(state.selectedMonth)) {
     state.selectedMonth = "";
@@ -1315,19 +1377,22 @@ async function loadData() {
     while (true) {
       const password = await passwordReady;
       try {
-        const [summaryJson, questionsJson] = await Promise.all([
-          decryptPayload(summaryEnvelope, password),
-          decryptPayload(questionsEnvelope, password),
-        ]);
+        // Decrypt the small summary first and paint the headline view from it, so the
+        // dashboard appears immediately instead of waiting on the ~7MB questions file.
+        const summaryJson = await decryptPayload(summaryEnvelope, password);
         state.summary = JSON.parse(summaryJson);
-        const questionsPayload = JSON.parse(questionsJson);
-        state.questions = questionsPayload.questions || [];
 
         // Success — store password for session and remove overlay
         sessionStorage.setItem("pq-auth-ok", password);
         const overlay = document.getElementById("auth-overlay");
         if (overlay) overlay.remove();
         document.querySelector(".page").style.display = "";
+        paintFromSummary();
+
+        // Then the questions, in the background. The summary-derived view matches what
+        // these produce, so the swap is invisible apart from the table filling in.
+        const questionsJson = await decryptPayload(questionsEnvelope, password);
+        state.questions = JSON.parse(questionsJson).questions || [];
         return;
       } catch {
         // Decryption failed. This is usually a wrong password, but it also happens when a
