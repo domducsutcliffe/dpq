@@ -72,6 +72,31 @@ a:hover {
   align-items: center;
 }
 
+/* Quick date filters: the latest tabling day, and the three days ending on it. */
+.btn-recent {
+  display: inline-flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1.5px solid #000000;
+  color: #000000;
+  padding: 4px 10px;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn-recent:hover,
+.btn-recent.active {
+  background: #000000;
+  color: var(--orange);
+}
+
 .btn-refresh {
   display: inline-flex;
   align-items: center;

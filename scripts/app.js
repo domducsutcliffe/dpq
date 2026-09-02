@@ -158,6 +158,10 @@ const state = {
   chartPoints: [],
   selectedMonth: "",
   selectedTopic: "",
+  // Inclusive lower bound on dateTabled, set by the Today / Past three days buttons.
+  // "Today" means the most recent day questions were actually tabled, not the calendar
+  // date — Parliament doesn't table every day, so a calendar "today" is usually empty.
+  tabledSince: "",
 };
 
 const PERIODS = {
@@ -224,6 +228,8 @@ const elements = {
   tooltip: document.querySelector("#chart-tooltip"),
   answerTooltip: document.querySelector("#answer-tooltip"),
   resetFilters: document.querySelector("#reset-filters"),
+  filterToday: document.querySelector("#filter-today"),
+  filterThreeDays: document.querySelector("#filter-3days"),
 };
 
 // Full answer text for the hover tooltip, keyed by question id (populated per render).
@@ -255,6 +261,55 @@ function parseDate(value) {
   if (!value) return null;
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+// Parliament doesn't table questions every day, so "today" is the most recent day that
+// actually has questions rather than the calendar date.
+function latestTabledDate() {
+  return (
+    state.summary?.dateRange?.newestTabled ||
+    state.questions.reduce((max, q) => ((q.dateTabled || "") > max ? q.dateTabled : max), "")
+  );
+}
+
+function shiftDays(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// "Past three days" is a three-calendar-day span ending on the latest tabling day,
+// i.e. that day plus the two calendar days before it.
+function recentRanges() {
+  const latest = latestTabledDate();
+  if (!latest) return null;
+  return { latest, today: latest, threeDays: shiftDays(latest, -2) };
+}
+
+function renderRecentButtons() {
+  const r = recentRanges();
+  const todayBtn = elements.filterToday;
+  const threeBtn = elements.filterThreeDays;
+  if (!todayBtn || !threeBtn) return;
+  if (!r) {
+    todayBtn.hidden = true;
+    threeBtn.hidden = true;
+    return;
+  }
+
+  todayBtn.hidden = false;
+  threeBtn.hidden = false;
+  todayBtn.textContent = `Today · ${shortDate(r.today)}`;
+  threeBtn.textContent = "Past 3 days";
+
+  const todayActive = state.tabledSince === r.today;
+  const threeActive = state.tabledSince === r.threeDays;
+  todayBtn.classList.toggle("active", todayActive);
+  threeBtn.classList.toggle("active", threeActive);
+  todayBtn.setAttribute("aria-pressed", String(todayActive));
+  threeBtn.setAttribute("aria-pressed", String(threeActive));
+  todayBtn.title = `Questions tabled on ${shortDate(r.today)} — the most recent day questions were tabled`;
+  threeBtn.title = `Questions tabled ${shortDate(r.threeDays)} to ${shortDate(r.latest)}`;
 }
 
 function shortDate(value) {
@@ -428,6 +483,8 @@ function getFilteredQuestions(excludeMonth = false, excludeTopic = false, exclud
       if (m !== state.selectedMonth) return false;
     }
 
+    if (state.tabledSince && (question.dateTabled || "") < state.tabledSince) return false;
+
     if (!excludeTopic && state.selectedTopic) {
       if (getQuestionTopic(question) !== state.selectedTopic) return false;
     }
@@ -499,6 +556,7 @@ function renderScopeStatus(filteredCount) {
   }
 
   elements.status.innerHTML = statusText;
+  renderRecentButtons();
   
   let footerText = `Stored source data goes back to ${shortDate(
     state.summary.dateRange.oldestTabled,
@@ -1301,6 +1359,47 @@ elements.regionChart.addEventListener("click", (event) => {
   render();
 });
 
+// Is a date inside any of the currently selected Parliament periods?
+function isDateInSelectedPeriods(date) {
+  if (state.periods.includes("all")) return true;
+  return Object.keys(PERIODS)
+    .filter((k) => state.periods.includes(k))
+    .some((k) => {
+      const p = PERIODS[k];
+      if (date < p.start) return false;
+      if (p.end && date >= p.end) return false;
+      return true;
+    });
+}
+
+// Today / Past three days, both toggling. The recent days normally sit inside the
+// default "Current Parliament", so the period filter is left alone — it's only widened
+// when the selected period would exclude them and the button would return nothing.
+function applyRecentFilter(from) {
+  state.tabledSince = state.tabledSince === from ? "" : from;
+  if (state.tabledSince && !isDateInSelectedPeriods(latestTabledDate())) {
+    state.periods = ["all"];
+    elements.periodCheckboxes.forEach((cb) => {
+      cb.checked = cb.value === "all";
+    });
+  }
+  render();
+}
+
+if (elements.filterToday) {
+  elements.filterToday.addEventListener("click", () => {
+    const r = recentRanges();
+    if (r) applyRecentFilter(r.today);
+  });
+}
+
+if (elements.filterThreeDays) {
+  elements.filterThreeDays.addEventListener("click", () => {
+    const r = recentRanges();
+    if (r) applyRecentFilter(r.threeDays);
+  });
+}
+
 elements.resetFilters.addEventListener("click", () => {
   state.query = "";
   state.party = "";
@@ -1309,6 +1408,7 @@ elements.resetFilters.addEventListener("click", () => {
   state.periods = ["current"];
   state.selectedMonth = "";
   state.selectedTopic = "";
+  state.tabledSince = "";
 
   elements.search.value = "";
   if (elements.searchQuestionOnly) {
