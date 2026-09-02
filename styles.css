@@ -72,6 +72,121 @@ a:hover {
   align-items: center;
 }
 
+/* Row burger menu → similar questions (beta). */
+.question-cell {
+  position: relative;
+  padding-right: 26px;
+}
+
+.row-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.row-menu:hover {
+  background: #fff;
+  border-color: var(--line);
+  color: #000;
+}
+
+.similar-panel {
+  position: fixed;
+  z-index: 1200;
+  width: 460px;
+  max-width: 92vw;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #fff;
+  border: 1px solid #000;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+}
+
+.similar-panel[hidden] { display: none; }
+
+.similar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--orange);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.beta-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  background: #000;
+  color: var(--orange);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
+
+.similar-close {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.similar-note {
+  margin: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.similar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.similar-item {
+  padding: 8px 10px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.similar-item:last-child { border-bottom: none; }
+
+.similar-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.similar-score {
+  margin-left: auto;
+  font-weight: 700;
+  color: #000;
+}
+
+.similar-heading { font-weight: 600; margin-bottom: 2px; }
+.similar-text { color: var(--muted); line-height: 1.45; }
+.similar-empty { padding: 12px 10px; color: var(--muted); }
+
 /* Quick date filters: the latest tabling day, and the three days ending on it. */
 .btn-recent {
   display: inline-flex;

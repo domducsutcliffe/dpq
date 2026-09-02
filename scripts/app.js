@@ -228,6 +228,7 @@ const elements = {
   tooltip: document.querySelector("#chart-tooltip"),
   answerTooltip: document.querySelector("#answer-tooltip"),
   resetFilters: document.querySelector("#reset-filters"),
+  similarPanel: document.querySelector("#similar-panel"),
   filterToday: document.querySelector("#filter-today"),
   filterThreeDays: document.querySelector("#filter-3days"),
 };
@@ -261,6 +262,82 @@ function parseDate(value) {
   if (!value) return null;
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+// ── Similar questions (BETA) ─────────────────────────────────────────────────
+// TF-IDF cosine similarity over heading + question text, built lazily in the browser
+// (~40ms for 3,000 questions, ~3ms per lookup). Every PQ opens with the same formula
+// ("To ask the Secretary of State…"), so that opener is stripped and IDF damps the rest
+// of the shared boilerplate — what's left is the distinctive subject matter.
+const SIMILAR_STOPWORDS = new Set(
+  `a an and any are as at be been being by for from has have how in into is it its of on or that the their
+   them there these this those to was were what when where which who why will with would could should make
+   made plans plan number many whether if ask asked secretary state department health social care steps
+   taking take assessment recent potential impact he she his her they what`.split(/\s+/),
+);
+const PQ_OPENER = /^to ask the (secretary of state|minister)[^,]*,\s*/i;
+const SIMILAR_MIN_SCORE = 0.12;
+let similarityIndex = null;
+
+function similarityTokens(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !SIMILAR_STOPWORDS.has(t));
+}
+
+function buildSimilarityIndex() {
+  const docs = state.questions.map((q) => {
+    const body = String(q.questionText || "").replace(PQ_OPENER, "");
+    const tf = new Map();
+    for (const t of similarityTokens(`${q.heading || ""} ${body}`)) {
+      tf.set(t, (tf.get(t) || 0) + 1);
+    }
+    return { q, tf };
+  });
+
+  const df = new Map();
+  for (const d of docs) for (const t of d.tf.keys()) df.set(t, (df.get(t) || 0) + 1);
+
+  const total = docs.length;
+  for (const d of docs) {
+    const vec = new Map();
+    let norm = 0;
+    for (const [t, f] of d.tf) {
+      const weight = (1 + Math.log(f)) * Math.log(total / (1 + (df.get(t) || 0)));
+      if (weight > 0) {
+        vec.set(t, weight);
+        norm += weight * weight;
+      }
+    }
+    norm = Math.sqrt(norm) || 1;
+    for (const [t, w] of vec) vec.set(t, w / norm);
+    d.vec = vec;
+    d.tf = null; // no longer needed; keep the index small
+  }
+
+  similarityIndex = { docs, byId: new Map(docs.map((d) => [d.q.id, d])) };
+}
+
+function findSimilarQuestions(question, limit = 3) {
+  if (!similarityIndex) buildSimilarityIndex();
+  const target = similarityIndex.byId.get(question.id);
+  if (!target) return [];
+  const scored = [];
+  for (const d of similarityIndex.docs) {
+    if (d.q.id === question.id) continue;
+    // Walk the smaller vector; both are L2-normalised so the dot product is the cosine.
+    const [small, large] = target.vec.size < d.vec.size ? [target.vec, d.vec] : [d.vec, target.vec];
+    let score = 0;
+    for (const [t, w] of small) {
+      const other = large.get(t);
+      if (other) score += w * other;
+    }
+    if (score >= SIMILAR_MIN_SCORE) scored.push({ question: d.q, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit);
 }
 
 // Parliament doesn't table questions every day, so "today" is the most recent day that
@@ -818,7 +895,8 @@ function renderTable(items) {
             <td><span class="party-dot" title="${escapeHtml(question.member.party || question.member.partyAbbreviation || "Unknown")}">${partyEmoji(question)}</span> ${filterLink(question.member.name)}</td>
             <td>${filterLink(question.member.constituency)}</td>
             <td>${escapeHtml(question.region.nhsRegion || "-")}</td>
-            <td>
+            <td class="question-cell">
+              <button class="row-menu" type="button" data-row-menu="${escapeHtml(String(question.id))}" title="More — find similar questions" aria-label="Row actions">☰</button>
               <div class="question-heading">${escapeHtml(question.heading || "Written question")}</div>
               <div class="question-text">${escapeHtml(question.questionText)}</div>
               <span class="status-pill ${question.answered ? "answered" : "unanswered"}${hasAnswer ? " has-answer-tip" : ""}"${hasAnswer ? ` data-qid="${escapeHtml(String(question.id))}"` : ""}>
@@ -1371,6 +1449,102 @@ function isDateInSelectedPeriods(date) {
       return true;
     });
 }
+
+// ── Row menu → similar questions panel ───────────────────────────────────────
+let openRowMenuId = null;
+
+function closeSimilarPanel() {
+  openRowMenuId = null;
+  if (elements.similarPanel) elements.similarPanel.hidden = true;
+}
+
+function positionSimilarPanel(anchor) {
+  const panel = elements.similarPanel;
+  const margin = 8;
+  const gap = 6;
+  const vw = document.documentElement.clientWidth;
+  const vh = window.innerHeight;
+  const r = anchor.getBoundingClientRect();
+
+  const spaceBelow = vh - r.bottom - gap - margin;
+  const spaceAbove = r.top - gap - margin;
+  const below = spaceBelow >= spaceAbove;
+  panel.style.maxHeight = `${Math.max(160, Math.min(below ? spaceBelow : spaceAbove, Math.round(vh * 0.7)))}px`;
+
+  const h = panel.offsetHeight;
+  const w = panel.offsetWidth;
+  let top = below ? r.bottom + gap : r.top - gap - h;
+  top = Math.max(margin, Math.min(top, vh - h - margin));
+  // Right-align to the button, since it sits at the row's right edge.
+  let left = Math.min(r.right - w, vw - w - margin);
+  left = Math.max(margin, left);
+  panel.style.top = `${Math.round(top)}px`;
+  panel.style.left = `${Math.round(left)}px`;
+}
+
+function openSimilarPanel(anchor, question) {
+  const panel = elements.similarPanel;
+  if (!panel) return;
+  const hits = findSimilarQuestions(question, 3);
+
+  const rows = hits.length
+    ? hits
+        .map(
+          (h) => `
+            <li class="similar-item">
+              <div class="similar-meta">
+                <a href="${escapeHtml(h.question.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(h.question.uin)}</a>
+                <span>${escapeHtml(shortDate(h.question.dateTabled))}</span>
+                <span>${escapeHtml(h.question.member.name || "-")}</span>
+                <span class="similar-score" title="Similarity score">${Math.round(h.score * 100)}%</span>
+              </div>
+              <div class="similar-heading">${escapeHtml(h.question.heading || "Written question")}</div>
+              <div class="similar-text">${escapeHtml(String(h.question.questionText || "").replace(PQ_OPENER, ""))}</div>
+            </li>`,
+        )
+        .join("")
+    : `<li class="similar-empty">No closely similar questions found.</li>`;
+
+  panel.innerHTML = `
+    <div class="similar-head">
+      <span>Similar questions <span class="beta-badge">BETA</span></span>
+      <button type="button" class="similar-close" aria-label="Close">✕</button>
+    </div>
+    <p class="similar-note">Matched on wording, not meaning — treat as a starting point, not a definitive set.</p>
+    <ul class="similar-list">${rows}</ul>`;
+
+  panel.hidden = false;
+  positionSimilarPanel(anchor);
+  openRowMenuId = question.id;
+}
+
+document.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-row-menu]");
+  if (btn) {
+    event.stopPropagation();
+    const id = Number(btn.dataset.rowMenu);
+    if (openRowMenuId === id) return closeSimilarPanel();
+    const question = state.questions.find((q) => q.id === id);
+    if (question) openSimilarPanel(btn, question);
+    return;
+  }
+  if (elements.similarPanel && !elements.similarPanel.hidden && !event.target.closest("#similar-panel")) {
+    closeSimilarPanel();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeSimilarPanel();
+});
+
+if (elements.similarPanel) {
+  elements.similarPanel.addEventListener("click", (event) => {
+    if (event.target.closest(".similar-close")) closeSimilarPanel();
+  });
+}
+
+window.addEventListener("resize", closeSimilarPanel);
+window.addEventListener("scroll", closeSimilarPanel, true);
 
 // Today / Past three days, both toggling. The recent days normally sit inside the
 // default "Current Parliament", so the period filter is left alone — it's only widened
