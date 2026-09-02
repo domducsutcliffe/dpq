@@ -187,10 +187,22 @@ a:hover {
 .similar-heading { font-weight: 600; margin-bottom: 2px; }
 .similar-text { color: var(--muted); line-height: 1.45; }
 
+/* Answer pill + parliament.uk link on one row under each result. */
+.similar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.similar-actions .status-pill {
+  margin-top: 0;
+}
+
 /* Explicit way through to the question on parliament.uk. */
 .similar-link {
   display: inline-block;
-  margin-top: 6px;
   color: #000;
   background: var(--orange);
   padding: 3px 7px;
@@ -675,7 +687,8 @@ td {
   position: fixed;
   left: 0;
   top: 0;
-  z-index: 1000;
+  /* Above the similar-questions panel (1200) — it is opened from inside it. */
+  z-index: 1300;
   max-width: min(460px, 92vw);
   max-height: 70vh;
   overflow-y: auto;

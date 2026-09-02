@@ -235,6 +235,9 @@ const elements = {
 
 // Full answer text for the hover tooltip, keyed by question id (populated per render).
 const answerByQid = new Map();
+// The same, for the rows in the similar-questions panel. Kept separate because
+// renderTable clears its map on every render, and the panel outlives a render.
+const similarAnswerByQid = new Map();
 
 const formatNumber = new Intl.NumberFormat("en-GB");
 const formatDate = new Intl.DateTimeFormat("en-GB", {
@@ -1013,7 +1016,8 @@ function positionAnswerTip(pill) {
 }
 
 function showAnswerTip(pill) {
-  const text = answerByQid.get(pill.getAttribute("data-qid") || "");
+  const qid = pill.getAttribute("data-qid") || "";
+  const text = answerByQid.get(qid) || similarAnswerByQid.get(qid);
   if (!text) return;
   clearTimeout(answerTipHideTimer);
   answerTipPill = pill;
@@ -1065,23 +1069,31 @@ if (elements.table) {
   });
 }
 
-if (elements.answerTooltip && elements.table) {
-  elements.table.addEventListener("mouseover", (event) => {
+// Any container holding `.has-answer-tip` pills can opt into the hover popup — the
+// questions table, and the similar-questions panel.
+function bindAnswerTipHover(container) {
+  if (!elements.answerTooltip || !container) return;
+  container.addEventListener("mouseover", (event) => {
     const pill = event.target.closest(".has-answer-tip");
-    if (!pill || !elements.table.contains(pill)) return;
+    if (!pill || !container.contains(pill)) return;
     if (pill === answerTipPill) {
       clearTimeout(answerTipHideTimer);
       return;
     }
     showAnswerTip(pill);
   });
-  elements.table.addEventListener("mouseout", (event) => {
+  container.addEventListener("mouseout", (event) => {
     const pill = event.target.closest(".has-answer-tip");
     if (!pill) return;
     const to = event.relatedTarget;
     if (to && (pill.contains(to) || elements.answerTooltip.contains(to))) return;
     scheduleHideAnswerTip();
   });
+}
+
+if (elements.answerTooltip && elements.table) {
+  bindAnswerTipHover(elements.table);
+  bindAnswerTipHover(elements.similarPanel);
   // Hover intent: moving the cursor into the tooltip (to read/scroll) keeps it open.
   elements.answerTooltip.addEventListener("mouseenter", () => clearTimeout(answerTipHideTimer));
   elements.answerTooltip.addEventListener("mouseleave", scheduleHideAnswerTip);
@@ -1484,6 +1496,8 @@ let openRowMenuId = null;
 
 function closeSimilarPanel() {
   openRowMenuId = null;
+  similarAnswerByQid.clear();
+  hideAnswerTip();
   if (elements.similarPanel) elements.similarPanel.hidden = true;
 }
 
@@ -1516,6 +1530,13 @@ function openSimilarPanel(anchor, question) {
   if (!panel) return;
   const hits = findSimilarQuestions(question, 3);
 
+  // Feed the hover popup the same way renderTable does, so the answer is readable
+  // here rather than only on parliament.uk.
+  similarAnswerByQid.clear();
+  for (const h of hits) {
+    if (h.question.answerText) similarAnswerByQid.set(String(h.question.id), h.question.answerText);
+  }
+
   const rows = hits.length
     ? hits
         .map(
@@ -1529,7 +1550,17 @@ function openSimilarPanel(anchor, question) {
               </div>
               <div class="similar-heading">${escapeHtml(h.question.heading || "Written question")}</div>
               <div class="similar-text">${escapeHtml(String(h.question.questionText || "").replace(PQ_OPENER, ""))}</div>
-              <a class="similar-link" href="${escapeHtml(h.question.url)}" target="_blank" rel="noopener noreferrer">View on parliament.uk ↗</a>
+              <div class="similar-actions">
+                ${
+                  h.question.answerText
+                    ? `<span class="status-pill answered has-answer-tip" data-qid="${escapeHtml(String(h.question.id))}" title="Hover to read the answer">
+                         <span class="status-dot green"></span>
+                         read answer
+                       </span>`
+                    : ""
+                }
+                <a class="similar-link" href="${escapeHtml(h.question.url)}" target="_blank" rel="noopener noreferrer">View on parliament.uk ↗</a>
+              </div>
             </li>`,
         )
         .join("")
@@ -1558,7 +1589,12 @@ document.addEventListener("click", (event) => {
     if (question) openSimilarPanel(btn, question);
     return;
   }
-  if (elements.similarPanel && !elements.similarPanel.hidden && !event.target.closest("#similar-panel")) {
+  if (
+    elements.similarPanel &&
+    !elements.similarPanel.hidden &&
+    !event.target.closest("#similar-panel") &&
+    !event.target.closest("#answer-tooltip")
+  ) {
     closeSimilarPanel();
   }
 });
@@ -1574,7 +1610,20 @@ if (elements.similarPanel) {
 }
 
 window.addEventListener("resize", closeSimilarPanel);
-window.addEventListener("scroll", closeSimilarPanel, true);
+// Dismiss on page scroll, but not when the scrolling happens inside the panel itself
+// or inside the answer popup it opened — those are the reader working through a result.
+window.addEventListener(
+  "scroll",
+  (event) => {
+    const target = event.target;
+    if (target instanceof Node) {
+      if (elements.similarPanel && elements.similarPanel.contains(target)) return;
+      if (elements.answerTooltip && elements.answerTooltip.contains(target)) return;
+    }
+    closeSimilarPanel();
+  },
+  true,
+);
 
 // Today / Past three days, both toggling. The recent days normally sit inside the
 // default "Current Parliament", so the period filter is left alone — it's only widened
