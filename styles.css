@@ -718,42 +718,46 @@ td {
   pointer-events: auto;
 }
 
-/* Sticky strip at the top of the popup: the copy button stays reachable however far
-   down a long answer you have scrolled. The negative margins bleed it to the popup's
-   edges, cancelling the 14px/16px padding. */
+/* Sticky strip at the foot of the popup: the copy button sits bottom-right and stays
+   there however far down a long answer you have scrolled. The negative margins bleed it
+   to the popup's edges, cancelling the 14px/16px padding. */
 .answer-tip-actions {
   position: sticky;
-  top: -14px;
+  bottom: -14px;
   z-index: 1;
   display: flex;
   justify-content: flex-end;
-  margin: -14px -16px 8px;
-  padding: 8px 16px 6px;
+  margin: 8px -16px -14px;
+  padding: 6px 16px 10px;
   background: #15181e;
 }
 
 .answer-copy {
-  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.06);
-  color: #f4f4f4;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  line-height: 1.4;
+  color: #e8e8e8;
+  line-height: 0;
   cursor: pointer;
 }
 
 .answer-copy:hover {
   background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 .answer-copy.copied {
   border-color: rgba(40, 167, 69, 0.6);
   color: #6ee787;
+}
+
+.answer-copy.failed {
+  border-color: rgba(220, 53, 69, 0.6);
+  color: #ff9aa2;
 }
 
 .answer-tooltip p {

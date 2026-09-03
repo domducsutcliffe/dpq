@@ -1017,11 +1017,41 @@ function copyTextToClipboard(text) {
 let answerTipBody = null;
 let answerCopyButton = null;
 
+// Two stacked sheets for "copy", a tick for "copied" — drawn in currentColor at the
+// same weight as the rest of the interface, so the popup stays uncluttered.
+const COPY_ICON_SVG = `
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+       stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+    <path d="M9 8H4v12h11v-4" />
+    <path d="M9 4h7l5 5v7H9z" />
+    <path d="M16 4v5h5" />
+    <path d="M11.5 11.5h7M11.5 14h7" />
+  </svg>`;
+
+const COPIED_ICON_SVG = `
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+       stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+    <path d="M5 12.5l4.5 4.5L19 7.5" />
+  </svg>`;
+
+function setAnswerCopyState(button, state) {
+  button.innerHTML = state === "copied" ? COPIED_ICON_SVG : COPY_ICON_SVG;
+  button.classList.toggle("copied", state === "copied");
+  button.classList.toggle("failed", state === "failed");
+  const label =
+    state === "copied"
+      ? "Answer copied"
+      : state === "failed"
+        ? "Copy failed — select the text and press Ctrl+C"
+        : "Copy this answer";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+}
+
 function resetAnswerCopyButton() {
   clearTimeout(answerCopyResetTimer);
   if (!answerCopyButton) return;
-  answerCopyButton.textContent = "Copy";
-  answerCopyButton.classList.remove("copied");
+  setAnswerCopyState(answerCopyButton, "copy");
 }
 
 function buildAnswerCopyButton() {
@@ -1030,25 +1060,15 @@ function buildAnswerCopyButton() {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "answer-copy";
-  button.textContent = "Copy";
-  button.title = "Copy this answer";
-  button.setAttribute("aria-label", "Copy this answer");
+  setAnswerCopyState(button, "copy");
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     copyTextToClipboard(answerTipText)
-      .then(() => {
-        button.textContent = "Copied";
-        button.classList.add("copied");
-      })
-      .catch(() => {
-        button.textContent = "Press Ctrl+C";
-      })
+      .then(() => setAnswerCopyState(button, "copied"))
+      .catch(() => setAnswerCopyState(button, "failed"))
       .finally(() => {
         clearTimeout(answerCopyResetTimer);
-        answerCopyResetTimer = setTimeout(() => {
-          button.textContent = "Copy";
-          button.classList.remove("copied");
-        }, 1600);
+        answerCopyResetTimer = setTimeout(() => setAnswerCopyState(button, "copy"), 1600);
       });
   });
   row.appendChild(button);
@@ -1056,15 +1076,15 @@ function buildAnswerCopyButton() {
   return row;
 }
 
-// The popup keeps a fixed shape: the copy strip, then a body the content replaces.
+// The popup keeps a fixed shape: a body the content replaces, then the copy strip.
 function ensureAnswerTipChrome() {
   const tip = elements.answerTooltip;
   if (answerTipBody && tip.contains(answerTipBody)) return;
   tip.textContent = "";
-  tip.appendChild(buildAnswerCopyButton());
   answerTipBody = document.createElement("div");
   answerTipBody.className = "answer-tip-body";
   tip.appendChild(answerTipBody);
+  tip.appendChild(buildAnswerCopyButton());
 }
 
 function setAnswerTipContent(text) {
