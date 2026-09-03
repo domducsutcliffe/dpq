@@ -986,9 +986,92 @@ function appendTextWithLinks(parent, text) {
   if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
 }
 
-function setAnswerTipContent(text) {
+// ── Copy the answer ──────────────────────────────────────────────────────────
+// The popup is the only place the answer appears in full on this page, so it needs a
+// way out: one button, copying exactly the text currently on screen.
+let answerTipText = "";
+let answerCopyResetTimer = null;
+
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  // Plain http (a local file server, say) has no async clipboard API.
+  return new Promise((resolve, reject) => {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.top = "-1000px";
+    document.body.appendChild(area);
+    area.select();
+    const copied = document.execCommand("copy");
+    area.remove();
+    copied ? resolve() : reject(new Error("copy rejected"));
+  });
+}
+
+// Built once and kept: the popup re-renders when a longer answer arrives, and rebuilding
+// the button there would wipe the "Copied" confirmation out from under the reader. The
+// handler reads answerTipText at click time, so it always copies what is on screen.
+let answerTipBody = null;
+let answerCopyButton = null;
+
+function resetAnswerCopyButton() {
+  clearTimeout(answerCopyResetTimer);
+  if (!answerCopyButton) return;
+  answerCopyButton.textContent = "Copy";
+  answerCopyButton.classList.remove("copied");
+}
+
+function buildAnswerCopyButton() {
+  const row = document.createElement("div");
+  row.className = "answer-tip-actions";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "answer-copy";
+  button.textContent = "Copy";
+  button.title = "Copy this answer";
+  button.setAttribute("aria-label", "Copy this answer");
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    copyTextToClipboard(answerTipText)
+      .then(() => {
+        button.textContent = "Copied";
+        button.classList.add("copied");
+      })
+      .catch(() => {
+        button.textContent = "Press Ctrl+C";
+      })
+      .finally(() => {
+        clearTimeout(answerCopyResetTimer);
+        answerCopyResetTimer = setTimeout(() => {
+          button.textContent = "Copy";
+          button.classList.remove("copied");
+        }, 1600);
+      });
+  });
+  row.appendChild(button);
+  answerCopyButton = button;
+  return row;
+}
+
+// The popup keeps a fixed shape: the copy strip, then a body the content replaces.
+function ensureAnswerTipChrome() {
   const tip = elements.answerTooltip;
+  if (answerTipBody && tip.contains(answerTipBody)) return;
   tip.textContent = "";
+  tip.appendChild(buildAnswerCopyButton());
+  answerTipBody = document.createElement("div");
+  answerTipBody.className = "answer-tip-body";
+  tip.appendChild(answerTipBody);
+}
+
+function setAnswerTipContent(text) {
+  ensureAnswerTipChrome();
+  const tip = answerTipBody;
+  tip.textContent = "";
+  answerTipText = String(text);
   // stripHtml separates paragraphs with newlines — render them as real paragraphs
   // (with spacing) rather than a wall of pre-wrapped text.
   const paras = String(text).split(/\n+/).map((s) => s.trim()).filter(Boolean);
@@ -1043,6 +1126,7 @@ function showAnswerTip(pill) {
 function hideAnswerTip() {
   clearTimeout(answerTipHideTimer);
   answerTipPill = null;
+  resetAnswerCopyButton();
   if (elements.answerTooltip) elements.answerTooltip.classList.remove("visible");
 }
 
@@ -1878,6 +1962,16 @@ document.addEventListener("click", (event) => {
 
     ([...elements.periodCheckboxes].some(cb => cb.contains(event.target))) ||
     (elements.resetFilters && elements.resetFilters.contains(event.target));
+
+  // The row menu, the similar-questions panel and the answer popup are their own UI —
+  // clicking into them (to copy an answer, say) is not a click away from the chart.
+  if (
+    event.target.closest("[data-row-menu]") ||
+    event.target.closest("#similar-panel") ||
+    event.target.closest("#answer-tooltip")
+  ) {
+    return;
+  }
 
   const isClearLink = 
     event.target.id === "clear-month-filter" ||
