@@ -899,7 +899,13 @@ function renderBars(container, rows, options = {}) {
 // thing. (PQ_OPENER is the same pattern the similar-questions panel strips.)
 function displayQuestionText(question) {
   const text = String(question.questionText || "");
-  return state.shortMode ? text.replace(PQ_OPENER, "") : text;
+  if (!state.shortMode) return text;
+  const trimmed = text.replace(PQ_OPENER, "");
+  // Nothing matched — a question that doesn't open with the formula is left alone.
+  if (trimmed === text) return text;
+  // What follows the formula is mid-sentence ("what steps her Department…"), so it needs
+  // a capital to read as the start of one.
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
 function renderTable(items) {
