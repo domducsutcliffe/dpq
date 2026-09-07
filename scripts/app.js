@@ -1712,6 +1712,14 @@ function positionSimilarPanel(anchor) {
   panel.style.left = `${Math.round(left)}px`;
 }
 
+// The panel always shows the question as tabled, pro forma and all: the table's short
+// mode is a setting for the table, and a comparator is easier to trust when you can see
+// the whole wording. (Matching still strips the formula — that is scoring, not display.)
+function similarQuestionText(question) {
+  const text = String(question.questionText || "");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function openSimilarPanel(anchor, question) {
   const panel = elements.similarPanel;
   if (!panel) return;
@@ -1736,7 +1744,7 @@ function openSimilarPanel(anchor, question) {
                 <span class="similar-score" title="Similarity score">${Math.round(h.score * 100)}%</span>
               </div>
               <div class="similar-heading">${escapeHtml(h.question.heading || "Written question")}</div>
-              <div class="similar-text">${escapeHtml(String(h.question.questionText || "").replace(PQ_OPENER, ""))}</div>
+              <div class="similar-text">${escapeHtml(similarQuestionText(h.question))}</div>
               <div class="similar-actions">
                 ${
                   h.question.answerText
