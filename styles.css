@@ -433,6 +433,14 @@ input[type="radio"] {
   white-space: nowrap;
 }
 
+/* Not a period: a display toggle, parked at the far right of the same strip. */
+.period-filters .short-mode {
+  margin-left: auto;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  color: var(--muted);
+}
+
 .checkbox-label {
   border: 1px solid var(--line);
   background: #fff;

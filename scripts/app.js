@@ -158,6 +158,9 @@ const state = {
   chartPoints: [],
   selectedMonth: "",
   selectedTopic: "",
+  // Drops the "To ask the Secretary of State…" pro forma from the front of each question
+  // in the table. A display preference, not a filter, so Reset Filters leaves it alone.
+  shortMode: false,
   // Inclusive lower bound on dateTabled, set by the Today / Past three days buttons.
   // "Today" means the most recent day questions were actually tabled, not the calendar
   // date — Parliament doesn't table every day, so a calendar "today" is usually empty.
@@ -213,6 +216,7 @@ const elements = {
   search: document.querySelector("#search"),
   periodCheckboxes: document.querySelectorAll('input[name="period"]'),
   searchQuestionOnly: document.querySelector("#search-question-only"),
+  shortMode: document.querySelector("#short-mode"),
   partyFilter: document.querySelector("#party-filter"),
   regionFilter: document.querySelector("#region-filter"),
   answerFilter: document.querySelector("#answer-filter"),
@@ -890,6 +894,14 @@ function renderBars(container, rows, options = {}) {
     : '<p class="chart-note">No matching data.</p>';
 }
 
+// Every PQ opens with the same formula. Short mode drops it so the question itself starts
+// the line; the stored text is untouched, so search and the export still see the whole
+// thing. (PQ_OPENER is the same pattern the similar-questions panel strips.)
+function displayQuestionText(question) {
+  const text = String(question.questionText || "");
+  return state.shortMode ? text.replace(PQ_OPENER, "") : text;
+}
+
 function renderTable(items) {
   const limit = 150;
   const visible = items.slice(0, limit);
@@ -943,7 +955,7 @@ function renderTable(items) {
             <td class="question-cell">
               <button class="row-menu" type="button" data-row-menu="${escapeHtml(String(question.id))}" title="More — find similar questions" aria-label="Row actions">☰</button>
               <div class="question-heading">${escapeHtml(question.heading || "Written question")}</div>
-              <div class="question-text">${escapeHtml(question.questionText)}</div>
+              <div class="question-text">${escapeHtml(displayQuestionText(question))}</div>
               <span class="status-pill ${question.answered ? "answered" : "unanswered"}${hasAnswer ? " has-answer-tip" : ""}"${hasAnswer ? ` data-qid="${escapeHtml(String(question.id))}"` : ""}>
                 <span class="status-dot ${question.answered ? "green" : "amber"}"></span>
                 ${question.answered ? "answered" : "unanswered"}
@@ -1819,6 +1831,13 @@ if (elements.filterThreeDays) {
   elements.filterThreeDays.addEventListener("click", () => {
     const r = recentRanges();
     if (r) applyRecentFilter(r.threeDays);
+  });
+}
+
+if (elements.shortMode) {
+  elements.shortMode.addEventListener("change", (event) => {
+    state.shortMode = event.target.checked;
+    render();
   });
 }
 
