@@ -2178,3 +2178,18 @@ loadData()
   });
 
 
+
+// ── Collapsible chart panels ─────────────────────────────────────────────────
+// The four chart boxes start collapsed so the questions table sits near the top of
+// the viewport on load. Expanding re-renders rather than just unhiding: the line
+// chart sizes itself from its container's clientWidth, which is 0 while the panel is
+// hidden, so it would otherwise stay at the 760px fallback width.
+document.querySelectorAll(".panel-toggle").forEach((toggle) => {
+  toggle.addEventListener("click", () => {
+    const panel = toggle.closest(".collapsible");
+    if (!panel) return;
+    const collapsed = panel.classList.toggle("collapsed");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    if (!collapsed) requestAnimationFrame(() => render());
+  });
+});

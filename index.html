@@ -85,30 +85,34 @@
       </section>
 
       <section class="charts" aria-label="Dashboard charts">
-        <article class="panel">
+        <article class="panel collapsible collapsed">
           <div class="panel-head">
-            <h2>Monthly volume</h2>
+            <h2><button class="panel-toggle" type="button" aria-expanded="false"
+              aria-controls="monthly-chart"><span class="chev" aria-hidden="true"></span>Monthly volume</button></h2>
             <span id="monthly-range"></span>
           </div>
           <div id="monthly-chart" class="chart chart-line"></div>
         </article>
-        <article class="panel">
+        <article class="panel collapsible collapsed">
           <div class="panel-head">
-            <h2>Hot topics</h2>
+            <h2><button class="panel-toggle" type="button" aria-expanded="false"
+              aria-controls="theme-chart"><span class="chev" aria-hidden="true"></span>Hot topics</button></h2>
             <span>question volume</span>
           </div>
           <div id="theme-chart" class="chart chart-bars"></div>
         </article>
-        <article class="panel">
+        <article class="panel collapsible collapsed">
           <div class="panel-head">
-            <h2>Parties</h2>
+            <h2><button class="panel-toggle" type="button" aria-expanded="false"
+              aria-controls="party-chart"><span class="chev" aria-hidden="true"></span>Parties</button></h2>
             <span>absolute volume</span>
           </div>
           <div id="party-chart" class="chart chart-bars"></div>
         </article>
-        <article class="panel">
+        <article class="panel collapsible collapsed">
           <div class="panel-head">
-            <h2>NHS regions</h2>
+            <h2><button class="panel-toggle" type="button" aria-expanded="false"
+              aria-controls="region-chart"><span class="chev" aria-hidden="true"></span>NHS regions</button></h2>
             <span>relative to leader</span>
           </div>
           <div id="region-chart" class="chart chart-bars"></div>
