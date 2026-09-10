@@ -6,9 +6,13 @@
 // and ciphertext).  The browser app decrypts them at runtime using the Web
 // Crypto API with the same password.
 //
+// The password itself is never written down here — it lives in the PQ_PASSWORD Actions
+// secret and in whatever you share with readers. A literal in this file would hand the
+// dataset to anyone who can read the repo.
+//
 // Usage:
-//   PQ_PASSWORD=39vs node scripts/encrypt-data.mjs
-//   node scripts/encrypt-data.mjs --password=39vs
+//   PQ_PASSWORD=<the shared password> node scripts/encrypt-data.mjs
+//   node scripts/encrypt-data.mjs --password=<the shared password>
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { readFile, writeFile } from "node:fs/promises";
