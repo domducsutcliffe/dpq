@@ -3,11 +3,30 @@ name: Refresh dentistry PQ data
 on:
   workflow_dispatch:
   schedule:
-    - cron: "30 5 * * 1-5"
-    - cron: "0,30 6-8 * * 1-5"
+    # GitHub's cron is best-effort: it queues these alongside everyone else's and drops
+    # or delays them under load, worst on the popular minutes (:00, :15, :30, :45).
+    #
+    # Measured on this repo, 27 Aug – 10 Sep 2026: of seven fires a morning, all on :00
+    # or :30, exactly two arrived each day and none in the morning — 05:30 UTC landed at
+    # 09:47–11:42, and twice in the late afternoon (16:36, 17:32).
+    #
+    # So: odd minutes, and enough attempts that a dropped or delayed fire still leaves
+    # the data fresh by the time anyone looks. A run that finds nothing new takes ~30s
+    # and commits nothing, so the extra fires cost only runner time — free here.
+    #
+    # 06:07 through 08:47 UK during BST; an hour earlier once the clocks go back.
+    - cron: "7,27,47 5,6,7 * * 1-5"
+    # Catch-up, in case the whole morning window was dropped: ~10:13 and ~11:13 UK.
+    - cron: "13 9,10 * * 1-5"
 
 permissions:
   contents: write
+
+# Nine fires a morning can overlap if one runs long. Queue them instead of racing:
+# two refreshes pushing at once is exactly how a run dies on a rejected push.
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
 
 jobs:
   refresh:
@@ -41,5 +60,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/dentistry/*.enc data/constituency-regions.json
           git commit -m "Refresh dentistry PQ dashboard data"
-          git push
-
+          # A push straight after the commit fails if anything landed on main while the
+          # refresh was running — a merge, or another fire of this workflow. Rebase onto
+          # whatever arrived and retry; the data is derived, so nothing can conflict.
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt) — rebasing onto origin/main and retrying."
+            git pull --rebase origin main
+          done
+          echo "Could not push the refreshed data after 3 attempts."
+          exit 1
