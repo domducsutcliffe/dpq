@@ -256,19 +256,36 @@ function decryptEnvelope(envelopeText, password) {
 // fall back to decrypting the committed `.enc` with PQ_PASSWORD. On CI only the
 // encrypted files are committed, so without this the refresh can't see its own
 // prior output and re-does a full fetch + full answer enrichment every run.
+// Set when a committed dataset exists but this run could not read it (no password,
+// wrong password, a corrupt file). That is very different from "there is no previous
+// data": carrying on would silently re-fetch the whole window and overwrite good data,
+// so main() refuses to rebuild unless --full says that is really what is wanted.
+let previousLoadFailure = null;
+
 async function readVerticalJson(name) {
   try {
     return await readFile(path.join(verticalDir, name), "utf8");
   } catch {
     // no plaintext — try the encrypted sibling
   }
-  const password = process.env.PQ_PASSWORD;
-  if (!password) return null;
+  let encText;
   try {
-    const encText = await readFile(path.join(verticalDir, `${name}.enc`), "utf8");
+    encText = await readFile(path.join(verticalDir, `${name}.enc`), "utf8");
+  } catch {
+    return null; // nothing committed under this name — a genuine first run
+  }
+  const password = process.env.PQ_PASSWORD;
+  if (!password) {
+    previousLoadFailure =
+      `${name}.enc is committed but PQ_PASSWORD is not set, so the previous data could ` +
+      "not be decrypted.";
+    return null;
+  }
+  try {
     return decryptEnvelope(encText, password);
   } catch (error) {
-    console.warn(`Could not read ${name} (plaintext or .enc): ${error.message}`);
+    previousLoadFailure = `Could not decrypt ${name}.enc: ${error.message}`;
+    console.warn(previousLoadFailure);
     return null;
   }
 }
@@ -913,6 +930,7 @@ async function main() {
   if (process.argv.includes("--enrich-only")) {
     const existing = await loadPreviousQuestions();
     if (!existing.length) {
+      if (previousLoadFailure) throw new Error(`Enrich-only: ${previousLoadFailure}`);
       console.log("Enrich-only: no existing questions.json found, nothing to do.");
       return;
     }
@@ -995,6 +1013,17 @@ async function main() {
     questions = [...mergedMap.values()];
     console.log(`Merged incremental PQs. Total: ${questions.length} questions`);
   } else {
+    // Refuse to rebuild the whole window behind the operator's back. If a dataset is
+    // committed and we simply could not open it, a "full fetch" is a data-loss event
+    // dressed up as a refresh: it re-fetches every month for nothing, drops every
+    // enriched full answer, and hides the real problem (usually a missing secret).
+    if (previousLoadFailure && !forceFull) {
+      throw new Error(
+        `${previousLoadFailure} Refusing to rebuild everything from scratch — fix the cause ` +
+          "(usually the PQ_PASSWORD secret) and re-run, or pass --full if a complete rebuild " +
+          "really is intended.",
+      );
+    }
     console.log("Performing full fetch of all questions from API...");
     const rawQuestions = await fetchQuestionsPaged({});
     questions = rawQuestions
