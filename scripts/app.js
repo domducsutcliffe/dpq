@@ -655,7 +655,10 @@ function renderMetrics(items) {
 
 function renderScopeStatus(filteredCount) {
   if (!state.summary) return;
-  const refreshed = formatGeneratedAt(state.summary.generatedAt);
+  const refreshed = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/London",
+  }).format(new Date(state.summary.generatedAt));
   const info = getPeriodInfo();
 
   const filterParts = [];
@@ -677,7 +680,7 @@ function renderScopeStatus(filteredCount) {
   const total = formatNumber.format(state.summary.collection?.totalQuestions ?? state.summary.totals.questions);
   const shown = formatNumber.format(filteredCount);
   const terms = VERTICAL.plainEnglishTerms.join(", ");
-  let statusText = `${total} Commons and Lords written questions to ${VERTICAL.answeringBodyLabel} mentioning ${VERTICAL.topic} (${terms}) · ${shown} shown${state.house ? ` (${state.house})` : ""} · refreshed ${refreshed}`;
+  let statusText = `${shown} of ${total} questions · Updated ${refreshed}`;
 
   if (filterParts.length > 0) {
     statusText += ` <span style="cursor:pointer; text-decoration:underline; font-weight:bold; margin-left:6px; color:#000000;" id="clear-filters-link">(clear filters)</span>`;
@@ -686,7 +689,7 @@ function renderScopeStatus(filteredCount) {
   elements.status.innerHTML = statusText;
   renderRecentButtons();
   
-  let footerText = `Stored source data goes back to ${shortDate(
+  let footerText = `Scope: Commons and Lords written questions to ${VERTICAL.answeringBodyLabel} mentioning ${VERTICAL.topic} (${terms}). Stored source data goes back to ${shortDate(
     state.summary.collection?.dateRange?.oldestTabled || state.summary.dateRange.oldestTabled,
   )} and includes DHSC plus its predecessor Department of Health. This view ${info.dates}.`;
   if (state.selectedMonth) {

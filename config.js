@@ -16,7 +16,7 @@ export const VERTICALS = [
     // Lowercase noun used inline in sentences, e.g. "questions mentioning dentistry".
     topic: "dentistry and water fluoridation",
     // Shown as the page <title>, the top-bar brand, and the switcher label.
-    brandTitle: "Dentistry PQ Dashboard",
+    brandTitle: "Dentistry PQs",
     label: "Dentistry",
 
     // --- UK Parliament Written Questions API scope ---
