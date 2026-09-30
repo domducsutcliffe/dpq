@@ -24,8 +24,9 @@ export const VERTICALS = [
     answeringBodies: "17", // 17 = Department of Health and Social Care
     answeringBodyLabel: "DHSC",
     // Fetch each API search term separately and combine the results by question ID.
-    // Wildcards include related forms; peridont* also covers the common misspelling.
-    searchTerms: ["dent*", "fluorid*", "periodont*", "peridont*", "gingiv*", "oral health", "oral hygiene", "tooth*", "teeth", "caries", "gum disease", "orthodont*", "endodont*", "maxillofacial", "oral cancer", "mouth cancer", "root canal"],
+    // Quote phrases so the API does not OR their words (e.g. oral OR health).
+    // Wildcards include related forms; peridont* covers the common misspelling.
+    searchTerms: ["dent*", "fluorid*", "periodont*", "peridont*", "gingiv*", "\"oral health\"", "\"oral hygiene\"", "tooth*", "teeth", "caries", "\"gum disease\"", "orthodont*", "endodont*", "maxillofacial", "\"oral cancer\"", "\"mouth cancer\"", "\"root canal\""],
 
     // Word-boundary roots used to post-filter a question's heading/text after fetch
     // (case-insensitive). Keep consistent with searchTerms; add roots to widen scope.
