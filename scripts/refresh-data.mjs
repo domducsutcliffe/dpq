@@ -383,7 +383,7 @@ async function fetchJson(url, tries = 5) {
       // Without a timeout a stalled socket hangs this await forever and the retry
       // logic below never runs — a long refresh can silently wedge on one bad
       // connection. Abort slow requests so they fall through to a retry instead.
-      const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
       if (!response.ok) {
         const error = new Error(`${response.status} ${response.statusText}`);
         error.status = response.status;
@@ -981,11 +981,6 @@ async function main() {
     const startDate = subtractDays(newestDate, 60);
     console.log(`Performing incremental fetch since ${startDate} (based on newest question date ${newestDate} - 60 days)`);
 
-    const tabledPromise = fetchQuestionsPaged({ tabledWhenFrom: startDate });
-    const answeredPromise = fetchQuestionsPaged({ answeredWhenFrom: startDate });
-
-    const [tabledResult, answeredResult] = await Promise.all([tabledPromise, answeredPromise]);
-
     // Backfill new House/term combinations across all dates without rebuilding
     // existing enriched records. Old summaries represent Commons-only datasets.
     const previousTerms = previousSummary?.source?.searchTerms ||
@@ -995,6 +990,12 @@ async function main() {
       [previousSummary?.source?.params?.house || "Commons"];
     const addedHouses = HOUSES.filter((house) => !previousHouses.includes(house));
     const existingHouses = HOUSES.filter((house) => previousHouses.includes(house));
+    // New terms are fetched across all dates below; querying them in both recent
+    // windows as well wastes requests. Serial windows avoid stressing the API.
+    const existingTerms = SEARCH_TERMS.filter((term) => previousTerms.includes(term));
+    const tabledResult = await fetchQuestionsPaged({ tabledWhenFrom: startDate }, existingTerms, existingHouses);
+    const answeredResult = await fetchQuestionsPaged({ answeredWhenFrom: startDate }, existingTerms, existingHouses);
+
     const backfill = [
       ...(addedTerms.length ? await fetchQuestionsPaged({}, addedTerms, existingHouses) : []),
       ...(addedHouses.length ? await fetchQuestionsPaged({}, SEARCH_TERMS, addedHouses) : []),
