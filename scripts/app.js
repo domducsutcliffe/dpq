@@ -151,6 +151,7 @@ const state = {
   summary: null,
   query: "",
   party: "",
+  house: "",
   region: "",
   answer: "",
   periods: ["current"],
@@ -217,6 +218,7 @@ const elements = {
   periodCheckboxes: document.querySelectorAll('input[name="period"]'),
   searchQuestionOnly: document.querySelector("#search-question-only"),
   shortMode: document.querySelector("#short-mode"),
+  houseFilter: document.querySelector("#house-filter"),
   partyFilter: document.querySelector("#party-filter"),
   regionFilter: document.querySelector("#region-filter"),
   answerFilter: document.querySelector("#answer-filter"),
@@ -380,6 +382,7 @@ function findSimilarQuestions(question, limit = 3) {
 // actually has questions rather than the calendar date.
 function latestTabledDate() {
   return (
+    state.summary?.collection?.dateRange?.newestTabled ||
     state.summary?.dateRange?.newestTabled ||
     state.questions.reduce((max, q) => ((q.dateTabled || "") > max ? q.dateTabled : max), "")
   );
@@ -504,7 +507,7 @@ function getPeriodInfo() {
     return {
       statusLabel: "questions from all Parliaments shown",
       label: "all Parliaments",
-      dates: `covers all Parliaments from ${shortDate(state.summary?.dateRange?.oldestTabled)} to ${shortDate(state.summary?.dateRange?.newestTabled)}`
+      dates: `covers all Parliaments from ${shortDate(state.summary?.collection?.dateRange?.oldestTabled || state.summary?.dateRange?.oldestTabled)} to ${shortDate(state.summary?.collection?.dateRange?.newestTabled || state.summary?.dateRange?.newestTabled)}`
     };
   }
   
@@ -554,12 +557,13 @@ function buildQueryMatchers(query) {
   });
 }
 
-function getFilteredQuestions(excludeMonth = false, excludeTopic = false, excludeParty = false, excludeRegion = false) {
+function getFilteredQuestions(excludeMonth = false, excludeTopic = false, excludeParty = false, excludeRegion = false, excludeHouse = false) {
   const query = state.query.trim().toLowerCase();
-  const exactUin = query.match(/^(?:uin:?\s*)?(\d{2,})$/)?.[1] || "";
+  const exactUin = query.match(/^(?:uin:?\s*)?((?:hl)?\d{2,})$/i)?.[1]?.toUpperCase() || "";
   const queryMatchers = query ? buildQueryMatchers(query) : [];
 
   return getScopedQuestions().filter((question) => {
+    if (!excludeHouse && state.house && questionHouse(question) !== state.house) return false;
     if (!excludeParty && state.party) {
       const party = question.member.partyAbbreviation || question.member.party || "Unknown";
       if (party !== state.party) return false;
@@ -604,6 +608,17 @@ function getFilteredQuestions(excludeMonth = false, excludeTopic = false, exclud
 
     return true;
   });
+}
+
+function questionHouse(question) {
+  return question.house || (/^HL/i.test(question.uin || "") ? "Lords" : "Commons");
+}
+
+// The House selector controls the question list and exports. Statistics always
+// use Commons records, while respecting the other dashboard filters.
+function getStatisticsQuestions(excludeMonth = false, excludeTopic = false, excludeParty = false, excludeRegion = false) {
+  return getFilteredQuestions(excludeMonth, excludeTopic, excludeParty, excludeRegion, true)
+    .filter((question) => questionHouse(question) === "Commons");
 }
 
 function isMonthInPeriods(month) {
@@ -659,10 +674,10 @@ function renderScopeStatus(filteredCount) {
     filterParts.push(`month "${monthName} ${year}"`);
   }
 
-  const total = formatNumber.format(state.summary.totals.questions);
+  const total = formatNumber.format(state.summary.collection?.totalQuestions ?? state.summary.totals.questions);
   const shown = formatNumber.format(filteredCount);
   const terms = VERTICAL.plainEnglishTerms.join(", ");
-  let statusText = `${total} ${VERTICAL.house} written questions to ${VERTICAL.answeringBodyLabel} mentioning ${VERTICAL.topic} (${terms}) · ${shown} shown · refreshed ${refreshed}`;
+  let statusText = `${total} Commons and Lords written questions to ${VERTICAL.answeringBodyLabel} mentioning ${VERTICAL.topic} (${terms}) · ${shown} shown${state.house ? ` (${state.house})` : ""} · refreshed ${refreshed}`;
 
   if (filterParts.length > 0) {
     statusText += ` <span style="cursor:pointer; text-decoration:underline; font-weight:bold; margin-left:6px; color:#000000;" id="clear-filters-link">(clear filters)</span>`;
@@ -672,7 +687,7 @@ function renderScopeStatus(filteredCount) {
   renderRecentButtons();
   
   let footerText = `Stored source data goes back to ${shortDate(
-    state.summary.dateRange.oldestTabled,
+    state.summary.collection?.dateRange?.oldestTabled || state.summary.dateRange.oldestTabled,
   )} and includes DHSC plus its predecessor Department of Health. This view ${info.dates}.`;
   if (state.selectedMonth) {
     const [year, monthNum] = state.selectedMonth.split("-");
@@ -707,7 +722,7 @@ function renderScopeStatus(filteredCount) {
 function renderSelects() {
   const scoped = getScopedQuestions();
   const parties = countBy(scoped, (question) => question.member.partyAbbreviation || question.member.party);
-  const regions = countBy(scoped, (question) => question.region.nhsRegion);
+  const regions = countBy(scoped.filter((question) => questionHouse(question) === "Commons"), (question) => question.region.nhsRegion);
 
   const partyStillPresent = !state.party || parties.some((party) => party.key === state.party);
   const regionStillPresent = !state.region || regions.some((region) => region.key === state.region);
@@ -955,8 +970,8 @@ function renderTable(items) {
             <td><a href="${escapeHtml(question.url)}">${escapeHtml(question.uin)}</a></td>
             <td style="white-space: nowrap;">${tabledHtml}</td>
             <td style="white-space: nowrap;">${dueCellHtml}</td>
-            <td><span class="party-dot" title="${escapeHtml(question.member.party || question.member.partyAbbreviation || "Unknown")}">${partyEmoji(question)}</span> ${filterLink(question.member.name)}</td>
-            <td>${filterLink(question.member.constituency)}</td>
+            <td><span class="party-dot" title="${escapeHtml(question.member.party || question.member.partyAbbreviation || "Unknown")}">${partyEmoji(question)}</span> ${filterLink(question.member.name)} <span class="house-badge">${escapeHtml(questionHouse(question))}</span></td>
+            <td>${questionHouse(question) === "Lords" ? "—" : filterLink(question.member.constituency)}</td>
             <td>${escapeHtml(question.region.nhsRegion || "-")}</td>
             <td class="question-cell">
               <button class="row-menu" type="button" data-row-menu="${escapeHtml(String(question.id))}" title="More — find similar questions" aria-label="Row actions">☰</button>
@@ -1298,13 +1313,13 @@ function render() {
   }
 
   const filtered = getFilteredQuestions();
-  const lineChartFiltered = getFilteredQuestions(true, false, false, false);
-  const themeChartFiltered = getFilteredQuestions(false, true, false, false);
-  const partyChartFiltered = getFilteredQuestions(false, false, true, false);
-  const regionChartFiltered = getFilteredQuestions(false, false, false, true);
+  const lineChartFiltered = getStatisticsQuestions(true, false, false, false);
+  const themeChartFiltered = getStatisticsQuestions(false, true, false, false);
+  const partyChartFiltered = getStatisticsQuestions(false, false, true, false);
+  const regionChartFiltered = getStatisticsQuestions(false, false, false, true);
 
   renderScopeStatus(filtered.length);
-  renderMetrics(filtered);
+  renderMetrics(getStatisticsQuestions());
   renderLineChart(lineChartFiltered);
   renderBars(elements.themeChart, getTopicCounts(themeChartFiltered), {
     limit: 100,
@@ -1352,6 +1367,7 @@ function exportRow(q, todayStr) {
   const overdue = !q.answered && q.dateForAnswer && q.dateForAnswer < todayStr;
   return {
     UIN: q.uin || "",
+    House: questionHouse(q),
     "Date tabled": q.dateTabled || "",
     "Date due": q.dateForAnswer || "",
     "Date answered": q.dateAnswered || "",
@@ -1391,6 +1407,7 @@ function exportScopeSlug() {
     state.selectedMonth,
     periodPart,
     state.query.trim(),
+    state.house,
   ]
     .map(exportSlug)
     .filter(Boolean);
@@ -1398,7 +1415,7 @@ function exportScopeSlug() {
 }
 
 function exportScopeDescription() {
-  const parts = [];
+  const parts = [`House: ${state.house || "Commons and Lords"}`];
   if (state.query.trim()) {
     parts.push(`search: "${state.query.trim()}"${state.searchQuestionOnly ? " (question text only)" : ""}`);
   }
@@ -1428,11 +1445,11 @@ function buildExportWorkbook(XLSX, rows) {
   const dataRows = rows.map((q) => exportRow(q, todayStr));
 
   const ws = XLSX.utils.json_to_sheet(dataRows);
-  ws["!cols"] = [8, 12, 12, 12, 11, 8, 10, 22, 22, 8, 26, 14, 22, 30, 60, 90, 9, 46].map((wch) => ({
+  ws["!cols"] = [8, 12, 12, 12, 12, 11, 8, 10, 22, 22, 8, 26, 14, 22, 30, 60, 90, 9, 46].map((wch) => ({
     wch,
   }));
   ws["!autofilter"] = {
-    ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: dataRows.length, c: 17 } }),
+    ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: dataRows.length, c: Object.keys(dataRows[0] || {}).length - 1 } }),
   };
 
   const answered = rows.filter((q) => q.answered).length;
@@ -1445,7 +1462,7 @@ function buildExportWorkbook(XLSX, rows) {
     ["Answered / unanswered", `${answered} / ${rows.length - answered}`],
     [],
     ["Source", "UK Parliament Written Questions API (questions-statements-api.parliament.uk)"],
-    ["Answering body", `${VERTICAL.answeringBodyLabel} — House of ${VERTICAL.house}`],
+    ["Answering body", `${VERTICAL.answeringBodyLabel} — ${state.house || "Commons and Lords"}`],
     ["Scope", `Questions mentioning ${VERTICAL.topic}`],
     [
       "Note on answers",
@@ -1602,6 +1619,11 @@ if (elements.searchQuestionOnly) {
 }
 
 
+
+elements.houseFilter.addEventListener("change", (event) => {
+  state.house = event.target.value;
+  render();
+});
 
 elements.partyFilter.addEventListener("change", (event) => {
   state.party = event.target.value;
@@ -1857,6 +1879,8 @@ if (elements.shortMode) {
 
 elements.resetFilters.addEventListener("click", () => {
   state.query = "";
+  state.house = "";
+  elements.houseFilter.value = "";
   state.party = "";
   state.region = "";
   state.answer = "";
@@ -2010,6 +2034,7 @@ document.addEventListener("click", (event) => {
     (elements.search && elements.search.contains(event.target)) ||
     (elements.partyFilter && elements.partyFilter.contains(event.target)) ||
     (elements.regionFilter && elements.regionFilter.contains(event.target)) ||
+    (elements.houseFilter && elements.houseFilter.contains(event.target)) ||
     (elements.answerFilter && elements.answerFilter.contains(event.target)) ||
     (elements.searchQuestionOnly && elements.searchQuestionOnly.contains(event.target)) ||
 
@@ -2053,7 +2078,7 @@ function applyVerticalBranding() {
   const brand = document.querySelector(".brand");
   if (brand) brand.textContent = VERTICAL.brandTitle;
   const totalLabel = document.querySelector("#metric-total-label");
-  if (totalLabel) totalLabel.textContent = `Total ${VERTICAL.topic} PQs`;
+  if (totalLabel) totalLabel.textContent = `Commons PQs`;
 }
 applyVerticalBranding();
 

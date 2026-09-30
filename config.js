@@ -20,7 +20,7 @@ export const VERTICALS = [
     label: "Dentistry",
 
     // --- UK Parliament Written Questions API scope ---
-    house: "Commons",
+    houses: ["Commons", "Lords"],
     answeringBodies: "17", // 17 = Department of Health and Social Care
     answeringBodyLabel: "DHSC",
     // Fetch each API search term separately and combine the results by question ID.

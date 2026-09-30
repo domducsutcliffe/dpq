@@ -359,7 +359,7 @@ h2 {
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 170px 110px;
+  grid-template-columns: 130px minmax(150px, 1fr) minmax(150px, 1fr) 150px 110px;
   gap: 6px;
   align-items: end;
   margin-bottom: 10px;
@@ -1167,3 +1167,6 @@ table th {
   outline: 2px solid #ff6600;
   outline-offset: 2px;
 }
+
+.statistics-scope { font-size: 11px; color: var(--muted); margin: 0 0 8px; }
+.house-badge { display: block; font-size: 10px; color: var(--muted); margin-top: 3px; }

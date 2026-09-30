@@ -16,6 +16,7 @@ const dataDir = path.join(repoRoot, "data");
 const verticalArg = process.argv.find((a) => a.startsWith("--vertical="));
 const VERTICAL = getVertical(verticalArg ? verticalArg.split("=")[1] : DEFAULT_VERTICAL_ID);
 const verticalDir = path.join(dataDir, VERTICAL.id);
+const HOUSES = VERTICAL.houses || [VERTICAL.house];
 const SEARCH_TERMS = VERTICAL.searchTerms || [VERTICAL.searchTerm];
 console.log(`Building vertical "${VERTICAL.id}" (search terms: ${SEARCH_TERMS.join(", ")})`);
 
@@ -32,7 +33,6 @@ const TOPIC_TAXONOMY_PATH = path.join(verticalDir, "topic-taxonomy.json");
 
 const PAGE_SIZE = Number(process.env.PAGE_SIZE || 100);
 const SOURCE_PARAMS = {
-  house: VERTICAL.house,
   answeringBodies: VERTICAL.answeringBodies,
   answered: "Any",
   includeWithdrawn: "false",
@@ -439,13 +439,15 @@ function subtractDays(dateStr, days) {
 }
 
 // Separate API requests give OR semantics without depending on API query syntax.
-async function fetchQuestionsPaged(queryParams, searchTerms = SEARCH_TERMS) {
+async function fetchQuestionsPaged(queryParams, searchTerms = SEARCH_TERMS, houses = HOUSES) {
   const unique = new Map();
-  for (const searchTerm of searchTerms) {
-    const items = await fetchQuestionTermPaged({ ...queryParams, searchTerm });
-    for (const item of items) {
-      const q = getQuestion(item);
-      if (q && q.id) unique.set(q.id, item);
+  for (const house of houses) {
+    for (const searchTerm of searchTerms) {
+      const items = await fetchQuestionTermPaged({ ...queryParams, house, searchTerm });
+      for (const item of items) {
+        const q = getQuestion(item);
+        if (q && q.id) unique.set(q.id, item);
+      }
     }
   }
   return [...unique.values()];
@@ -664,7 +666,8 @@ async function buildConstituencyLookup() {
 function mapQuestion(item, constituencyLookup) {
   const q = getQuestion(item);
   const member = q.askingMember || {};
-  const constituency = member.memberFrom || "";
+  const house = q.house || (/^HL/i.test(q.uin || "") ? "Lords" : "Commons");
+  const constituency = house === "Commons" ? member.memberFrom || "" : "";
   const regionRecord = constituencyLookup.get(normaliseName(constituency));
   const dateTabled = q.dateTabled ? q.dateTabled.slice(0, 10) : "";
   const dateAnswered = q.dateAnswered ? q.dateAnswered.slice(0, 10) : "";
@@ -672,6 +675,7 @@ function mapQuestion(item, constituencyLookup) {
   return {
     id: q.id,
     uin: q.uin,
+    house,
     url: dateTabled && q.uin ? `${DETAIL_BASE}/${dateTabled}/${q.uin}` : "",
     heading: q.heading || "",
     questionText: stripHtml(q.questionText),
@@ -691,10 +695,10 @@ function mapQuestion(item, constituencyLookup) {
     },
     region: {
       constituency,
-      nation: regionRecord?.nation || "Unknown",
+      nation: house === "Lords" ? "" : regionRecord?.nation || "Unknown",
       parliamentaryRegion: regionRecord?.parliamentaryRegion || "",
-      nhsRegion: regionRecord?.nhsRegion || "Unknown",
-      sourceBoundary: regionRecord?.sourceBoundary || "unmatched",
+      nhsRegion: house === "Lords" ? "" : regionRecord?.nhsRegion || "Unknown",
+      sourceBoundary: house === "Lords" ? "not applicable" : regionRecord?.sourceBoundary || "unmatched",
       mappedToConstituency: regionRecord?.mappedToConstituency || "",
     },
   };
@@ -807,6 +811,7 @@ function buildSummary(
       constituencyOverlapSource: PARL10_TO_PARL25_CSV,
       params: SOURCE_PARAMS,
       searchTerms: SEARCH_TERMS,
+      houses: HOUSES,
     },
     totals: {
       questions: questions.length,
@@ -981,12 +986,19 @@ async function main() {
 
     const [tabledResult, answeredResult] = await Promise.all([tabledPromise, answeredPromise]);
 
-    // Backfill newly added terms across all dates, preserving existing enriched
-    // questions. Once saved in the summary, these terms use normal incremental fetches.
+    // Backfill new House/term combinations across all dates without rebuilding
+    // existing enriched records. Old summaries represent Commons-only datasets.
     const previousTerms = previousSummary?.source?.searchTerms ||
       [previousSummary?.source?.params?.searchTerm].filter(Boolean);
     const addedTerms = SEARCH_TERMS.filter((term) => !previousTerms.includes(term));
-    const backfill = addedTerms.length ? await fetchQuestionsPaged({}, addedTerms) : [];
+    const previousHouses = previousSummary?.source?.houses ||
+      [previousSummary?.source?.params?.house || "Commons"];
+    const addedHouses = HOUSES.filter((house) => !previousHouses.includes(house));
+    const existingHouses = HOUSES.filter((house) => previousHouses.includes(house));
+    const backfill = [
+      ...(addedTerms.length ? await fetchQuestionsPaged({}, addedTerms, existingHouses) : []),
+      ...(addedHouses.length ? await fetchQuestionsPaged({}, SEARCH_TERMS, addedHouses) : []),
+    ];
 
     const newQuestionsMap = new Map();
     for (const item of [...tabledResult, ...answeredResult, ...backfill]) {
@@ -1054,6 +1066,11 @@ async function main() {
     console.log("Full fetch complete. Total: " + questions.length + " questions");
   }
 
+  // Upgrade older Commons-only records and keep peer titles out of geography.
+  for (const question of questions) {
+    question.house ||= /^HL/i.test(question.uin || "") ? "Lords" : "Commons";
+  }
+
   // Only Written Questions API data (questions-statements-api.parliament.uk) is used.
   questions.sort((a, b) => {
     const dateCompare = b.dateTabled.localeCompare(a.dateTabled);
@@ -1067,11 +1084,15 @@ async function main() {
     console.log("Offline mode: skipping live answer enrichment.");
   }
 
-  classifyQuestions(questions, taxonomy);
+  const commonsQuestions = questions.filter((question) => question.house === "Commons");
+  const lordsQuestions = questions.filter((question) => question.house === "Lords");
+  // Lords must not change the Commons topic weights or any dashboard statistics.
+  classifyQuestions(commonsQuestions, taxonomy);
+  classifyQuestions(lordsQuestions, taxonomy);
 
   const unmatchedConstituencies = [
     ...new Set(
-      questions
+      commonsQuestions
         .filter((question) => question.region.nhsRegion === "Unknown")
         .map((question) => question.member.constituency)
         .filter(Boolean),
@@ -1079,12 +1100,24 @@ async function main() {
   ].sort();
 
   const summary = buildSummary(
-    questions,
+    commonsQuestions,
     constituencyRecords,
     unmatchedConstituencies,
     taxonomy,
     previousSummary,
   );
+
+  const collectionDates = questions.map((q) => q.dateTabled).filter(Boolean).sort();
+  summary.statisticsHouse = "Commons";
+  summary.collection = {
+    totalQuestions: questions.length,
+    byHouse: { Commons: commonsQuestions.length, Lords: lordsQuestions.length },
+    dateRange: {
+      oldestTabled: collectionDates[0] || "",
+      newestTabled: collectionDates.at(-1) || "",
+    },
+  };
+  console.log(`Collection: ${commonsQuestions.length} Commons, ${lordsQuestions.length} Lords; statistics: Commons only.`);
 
   if (isOffline) {
     summary.source = previousSummary?.source || { ...summary.source, searchTerms: [] };

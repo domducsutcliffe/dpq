@@ -32,9 +32,10 @@
 
     <main class="page">
 
-      <section class="metrics" aria-label="Summary metrics">
+      <p class="statistics-scope">Statistics and charts: Commons only. The House filter applies to the question list and exports.</p>
+      <section class="metrics" aria-label="Commons summary metrics">
         <article class="metric">
-          <span id="metric-total-label">Total dentistry PQs</span>
+          <span id="metric-total-label">Commons PQs</span>
           <strong id="metric-total">-</strong>
         </article>
         <article class="metric">
@@ -70,6 +71,11 @@
           <label><input type="checkbox" name="period" value="sunak" /> Sunak</label>
           <label class="short-mode" title="Drop the &quot;To ask the Secretary of State for Health and Social Care,&quot; opening from each question in the table"><input id="short-mode" type="checkbox" /> Short mode</label>
         </fieldset>
+        <select id="house-filter" aria-label="House filter">
+          <option value="">Both Houses</option>
+          <option value="Commons">Commons</option>
+          <option value="Lords">Lords</option>
+        </select>
         <select id="party-filter" aria-label="Party filter">
           <option value="">All parties</option>
         </select>
