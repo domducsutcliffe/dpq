@@ -1,6 +1,11 @@
 name: Refresh dentistry PQ data
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "config.js"
+      - "scripts/refresh-data.mjs"
   workflow_dispatch:
   schedule:
     # GitHub's cron is best-effort: it queues these alongside everyone else's and drops

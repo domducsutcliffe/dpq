@@ -16,7 +16,8 @@ const dataDir = path.join(repoRoot, "data");
 const verticalArg = process.argv.find((a) => a.startsWith("--vertical="));
 const VERTICAL = getVertical(verticalArg ? verticalArg.split("=")[1] : DEFAULT_VERTICAL_ID);
 const verticalDir = path.join(dataDir, VERTICAL.id);
-console.log(`Building vertical "${VERTICAL.id}" (searchTerm: ${VERTICAL.searchTerm})`);
+const SEARCH_TERMS = VERTICAL.searchTerms || [VERTICAL.searchTerm];
+console.log(`Building vertical "${VERTICAL.id}" (search terms: ${SEARCH_TERMS.join(", ")})`);
 
 const QUESTIONS_ENDPOINT =
   "https://questions-statements-api.parliament.uk/api/writtenquestions/questions";
@@ -36,7 +37,6 @@ const SOURCE_PARAMS = {
   answered: "Any",
   includeWithdrawn: "false",
   expandMember: "true",
-  searchTerm: VERTICAL.searchTerm,
 };
 
 // Word-boundary, case-insensitive regex built from the vertical's match roots,
@@ -438,7 +438,20 @@ function subtractDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
-async function fetchQuestionsPaged(queryParams) {
+// Separate API requests give OR semantics without depending on API query syntax.
+async function fetchQuestionsPaged(queryParams, searchTerms = SEARCH_TERMS) {
+  const unique = new Map();
+  for (const searchTerm of searchTerms) {
+    const items = await fetchQuestionTermPaged({ ...queryParams, searchTerm });
+    for (const item of items) {
+      const q = getQuestion(item);
+      if (q && q.id) unique.set(q.id, item);
+    }
+  }
+  return [...unique.values()];
+}
+
+async function fetchQuestionTermPaged(queryParams) {
   const all = [];
   let total = null;
 
@@ -793,6 +806,7 @@ function buildSummary(
       historicConstituencySource: CONSTITUENCY_2020_CSV,
       constituencyOverlapSource: PARL10_TO_PARL25_CSV,
       params: SOURCE_PARAMS,
+      searchTerms: SEARCH_TERMS,
     },
     totals: {
       questions: questions.length,
@@ -949,6 +963,7 @@ async function main() {
   const { lookup, records: constituencyRecords } = await buildConstituencyLookup();
 
   const existingQuestions = await loadPreviousQuestions();
+  const previousSummary = await loadPreviousSummary();
   const forceFull = process.argv.includes("--full");
   const isOffline = process.argv.includes("--offline");
 
@@ -966,8 +981,15 @@ async function main() {
 
     const [tabledResult, answeredResult] = await Promise.all([tabledPromise, answeredPromise]);
 
+    // Backfill newly added terms across all dates, preserving existing enriched
+    // questions. Once saved in the summary, these terms use normal incremental fetches.
+    const previousTerms = previousSummary?.source?.searchTerms ||
+      [previousSummary?.source?.params?.searchTerm].filter(Boolean);
+    const addedTerms = SEARCH_TERMS.filter((term) => !previousTerms.includes(term));
+    const backfill = addedTerms.length ? await fetchQuestionsPaged({}, addedTerms) : [];
+
     const newQuestionsMap = new Map();
-    for (const item of [...tabledResult, ...answeredResult]) {
+    for (const item of [...tabledResult, ...answeredResult, ...backfill]) {
       const q = getQuestion(item);
       if (q && q.id) {
         newQuestionsMap.set(q.id, item);
@@ -1056,7 +1078,6 @@ async function main() {
     ),
   ].sort();
 
-  const previousSummary = await loadPreviousSummary();
   const summary = buildSummary(
     questions,
     constituencyRecords,
@@ -1064,6 +1085,10 @@ async function main() {
     taxonomy,
     previousSummary,
   );
+
+  if (isOffline) {
+    summary.source = previousSummary?.source || { ...summary.source, searchTerms: [] };
+  }
 
   await writeFile(
     path.join(verticalDir, "questions.json"),
