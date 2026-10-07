@@ -208,6 +208,7 @@ const PERIODS = {
 };
 
 const elements = {
+  topbar: document.querySelector(".topbar"),
   status: document.querySelector("#data-status"),
   total: document.querySelector("#metric-total"),
   answered: document.querySelector("#metric-answered"),
@@ -218,7 +219,7 @@ const elements = {
   periodCheckboxes: document.querySelectorAll('input[name="period"]'),
   searchQuestionOnly: document.querySelector("#search-question-only"),
   shortMode: document.querySelector("#short-mode"),
-  houseFilter: document.querySelector("#house-filter"),
+  houseViews: document.querySelector("#house-views"),
   partyFilter: document.querySelector("#party-filter"),
   regionFilter: document.querySelector("#region-filter"),
   answerFilter: document.querySelector("#answer-filter"),
@@ -683,7 +684,7 @@ function renderScopeStatus(filteredCount) {
   let statusText = `${shown} of ${total} questions · Updated ${refreshed}`;
 
   if (filterParts.length > 0) {
-    statusText += ` <span style="cursor:pointer; text-decoration:underline; font-weight:bold; margin-left:6px; color:#000000;" id="clear-filters-link">(clear filters)</span>`;
+    statusText += ` <span style="cursor:pointer; text-decoration:underline; font-weight:bold; margin-left:6px; color:inherit;" id="clear-filters-link">(clear filters)</span>`;
   }
 
   elements.status.innerHTML = statusText;
@@ -1310,7 +1311,15 @@ function paintFromSummary() {
   elements.table.innerHTML = `<tr><td colspan="7" class="table-loading">Loading questions…</td></tr>`;
 }
 
+function renderHouseViews() {
+  elements.topbar.dataset.house = state.house || "Combined";
+  for (const button of elements.houseViews.querySelectorAll("button[data-house]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.house === state.house));
+  }
+}
+
 function render() {
+  renderHouseViews();
   if (state.selectedMonth && !isMonthInPeriods(state.selectedMonth)) {
     state.selectedMonth = "";
   }
@@ -1623,8 +1632,15 @@ if (elements.searchQuestionOnly) {
 
 
 
-elements.houseFilter.addEventListener("change", (event) => {
-  state.house = event.target.value;
+elements.houseViews.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-house]");
+  if (!button || !elements.houseViews.contains(button)) return;
+  state.house = button.dataset.house;
+  // A constituency-based filter cannot apply to a Lords-only view.
+  if (state.house === "Lords") {
+    state.region = "";
+    elements.regionFilter.value = "";
+  }
   render();
 });
 
@@ -1883,7 +1899,6 @@ if (elements.shortMode) {
 elements.resetFilters.addEventListener("click", () => {
   state.query = "";
   state.house = "";
-  elements.houseFilter.value = "";
   state.party = "";
   state.region = "";
   state.answer = "";
@@ -2037,7 +2052,7 @@ document.addEventListener("click", (event) => {
     (elements.search && elements.search.contains(event.target)) ||
     (elements.partyFilter && elements.partyFilter.contains(event.target)) ||
     (elements.regionFilter && elements.regionFilter.contains(event.target)) ||
-    (elements.houseFilter && elements.houseFilter.contains(event.target)) ||
+    (elements.houseViews && elements.houseViews.contains(event.target)) ||
     (elements.answerFilter && elements.answerFilter.contains(event.target)) ||
     (elements.searchQuestionOnly && elements.searchQuestionOnly.contains(event.target)) ||
 
