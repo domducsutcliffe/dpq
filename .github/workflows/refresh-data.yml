@@ -6,29 +6,19 @@ on:
     paths:
       - "config.js"
       - "scripts/refresh-data.mjs"
+      - ".github/workflows/refresh-data.yml"
   workflow_dispatch:
   schedule:
-    # GitHub's cron is best-effort: it queues these alongside everyone else's and drops
-    # or delays them under load, worst on the popular minutes (:00, :15, :30, :45).
-    #
-    # Measured on this repo, 27 Aug – 10 Sep 2026: of seven fires a morning, all on :00
-    # or :30, exactly two arrived each day and none in the morning — 05:30 UTC landed at
-    # 09:47–11:42, and twice in the late afternoon (16:36, 17:32).
-    #
-    # So: odd minutes, and enough attempts that a dropped or delayed fire still leaves
-    # the data fresh by the time anyone looks. A run that finds nothing new takes ~30s
-    # and commits nothing, so the extra fires cost only runner time — free here.
-    #
-    # 06:07 through 08:47 UK during BST; an hour earlier once the clocks go back.
-    - cron: "7,27,47 5,6,7 * * 1-5"
-    # Catch-up, in case the whole morning window was dropped: ~10:13 and ~11:13 UK.
-    - cron: "13 9,10 * * 1-5"
+    # Primary 06:00 UK refresh, plus off-hour catch-ups if GitHub misses it.
+    - cron: "0 6 * * *"
+      timezone: "Europe/London"
+    - cron: "17 6,7 * * *"
+      timezone: "Europe/London"
 
 permissions:
   contents: write
 
-# Nine fires a morning can overlap if one runs long. Queue them instead of racing:
-# two refreshes pushing at once is exactly how a run dies on a rejected push.
+# Serialise refreshes so they cannot overwrite each other.
 concurrency:
   group: refresh-data
   cancel-in-progress: false
@@ -38,10 +28,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Check whether today's scheduled refresh is already complete
+        id: freshness
+        env:
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const ukDate = value => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date(value));
+          let alreadyFresh = false;
+          try {
+            const status = JSON.parse(readFileSync('data/refresh-status.json', 'utf8'));
+            const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hourCycle: 'h23' }).format(new Date(status.refreshedAt)));
+            alreadyFresh = ukDate(status.refreshedAt) === ukDate(Date.now()) && hour >= 6;
+          } catch {}
+          const run = process.env.TRIGGER_EVENT !== 'schedule' || !alreadyFresh;
+          appendFileSync(process.env.GITHUB_OUTPUT, 'run=' + run + '\n');
+          console.log(run ? 'Refresh required.' : 'Already refreshed today; skipping scheduled catch-up.');
+          NODE
       - uses: actions/setup-node@v4
+        if: steps.freshness.outputs.run == 'true'
         with:
           node-version: "24"
       - name: Refresh committed dashboard data
+        if: steps.freshness.outputs.run == 'true'
         env:
           # Lets the refresh decrypt the committed .enc to find its prior state and
           # run the fast incremental path instead of a full rebuild every run.
@@ -52,18 +64,27 @@ jobs:
           ANSWER_DELAY_MS: "250"
         run: node scripts/refresh-data.mjs
       - name: Encrypt data files
+        if: steps.freshness.outputs.run == 'true'
         env:
           PQ_PASSWORD: ${{ secrets.PQ_PASSWORD }}
         run: node scripts/encrypt-data.mjs
-      - name: Commit data changes
+      - name: Record successful refresh time
+        if: steps.freshness.outputs.run == 'true'
         run: |
-          if git diff --quiet -- data/dentistry/*.enc data/constituency-regions.json; then
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync('data/refresh-status.json', JSON.stringify({ refreshedAt: new Date().toISOString() }) + '\n');
+          NODE
+      - name: Commit data changes
+        if: steps.freshness.outputs.run == 'true'
+        run: |
+          git add -A data/dentistry data/constituency-regions.json data/refresh-status.json
+          if git diff --cached --quiet; then
             echo "No dentistry PQ data changes."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/dentistry/*.enc data/constituency-regions.json
           git commit -m "Refresh dentistry PQ dashboard data"
           # A push straight after the commit fails if anything landed on main while the
           # refresh was running — a merge, or another fire of this workflow. Rebase onto
