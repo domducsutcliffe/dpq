@@ -29,3 +29,13 @@ test('Import rejects invalid topics and merges each PQ using the latest correcti
  assert.throws(()=>validateCorrections({version:1,corrections:[{...first,topic:'Bad topic'}]}));
  assert.throws(()=>validateCorrections({version:1,corrections:[{...first,features:['<script>']}]}));
 });
+
+
+test('Legacy feedback migrates both pairs of merged categories', () => {
+ for (const [oldTopic,newTopic] of [['Finance','Finance and funding'],['Funding','Finance and funding'],['Contract reform','Contract and long term reform'],['Long term reform','Contract and long term reform']]) {
+  const input={...correction(sample,oldTopic),originalTopic:oldTopic};
+  const result=validateCorrections({version:1,corrections:[input]})[0];
+  assert.equal(result.topic,newTopic);
+  assert.equal(result.originalTopic,newTopic);
+ }
+});

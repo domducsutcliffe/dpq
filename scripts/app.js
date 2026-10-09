@@ -114,8 +114,8 @@ if (document.readyState === "loading") {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { DEFAULT_VERTICAL_ID, getVertical } from "../config.js";
-import { TOPICS, classifyQuestion, rangeStart } from "./topics.mjs";
-import { questionKey, questionFeatures, validateCorrections, topicDecision } from "./topic-feedback.mjs";
+import { TOPICS, classifyQuestion, rangeStart } from "./topics.mjs?v=category-schema-2";
+import { questionKey, questionFeatures, validateCorrections, topicDecision } from "./topic-feedback.mjs?v=category-schema-2";
 
 const VERTICAL = getVertical(DEFAULT_VERTICAL_ID);
 
@@ -486,10 +486,11 @@ function persistCorrections(next) {
 function topicEditor(question) {
   const decision = getTopicDecision(question);
   const automatic = topicDecision(question, corrections.filter(entry => entry.key !== questionKey(question)));
-  return `<select class="topic-editor" data-topic-key="${escapeHtml(questionKey(question))}" aria-label="Topic for PQ ${escapeHtml(question.uin)}" title="${decision.source === 'manual' ? 'Your saved correction' : decision.source === 'learned' ? 'Suggested from matching corrections' : 'Assigned from categorisation rules'}"><option value=""${decision.source !== 'manual' ? ' selected' : ''}>${automatic.source === 'learned' ? 'Learned' : 'Auto'} — ${escapeHtml(automatic.topic)}</option>${TOPICS.map(topic => `<option value="${escapeHtml(topic)}"${decision.source === 'manual' && decision.topic === topic ? ' selected' : ''}>${escapeHtml(topic)}</option>`).join("")}</select>`;
+  return `<span class="topic-label">${escapeHtml(decision.topic)}</span><select class="topic-editor" data-topic-key="${escapeHtml(questionKey(question))}" aria-label="Topic for PQ ${escapeHtml(question.uin)}" title="${decision.source === 'manual' ? 'Your saved correction' : decision.source === 'learned' ? 'Suggested from matching corrections' : 'Assigned from categorisation rules'}"><option value=""${decision.source !== 'manual' ? ' selected' : ''}>${automatic.source === 'learned' ? 'Learned' : 'Auto'} — ${escapeHtml(automatic.topic)}</option>${TOPICS.map(topic => `<option value="${escapeHtml(topic)}"${decision.source === 'manual' && decision.topic === topic ? ' selected' : ''}>${escapeHtml(topic)}</option>`).join("")}</select>`;
 }
 document.querySelector("#dev-mode").addEventListener("change", event => {
   document.querySelector("#topic-feedback-controls").hidden = !event.target.checked;
+  document.body.classList.toggle("dev-mode", event.target.checked);
 });
 
 function renderFeedbackStatus(message = "") {
@@ -2349,5 +2350,6 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
     if (!collapsed) requestAnimationFrame(() => render());
   });
 });
+
 
 

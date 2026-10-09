@@ -1276,3 +1276,8 @@ table th {
 .dev-mode-toggle { display:inline-flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); cursor:pointer; white-space:nowrap; }
 .dev-mode-toggle input { width:12px; height:12px; min-height:0; margin:0; }
 .topic-edit-notice { margin:6px 0; font-size:11px; color:var(--muted); }
+
+
+body:not(.dev-mode) .topic-editor { display:none; }
+body.dev-mode .topic-label { display:none; }
+.topic-label { display:inline-block; font-size:11px; }

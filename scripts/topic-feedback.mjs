@@ -1,4 +1,4 @@
-import { TOPICS, classifyQuestion } from './topics.mjs';
+import { TOPICS, classifyQuestion, canonicalTopic } from './topics.mjs?v=category-schema-2';
 
 // Stable across dataset refreshes and independent of row order.
 export function questionKey(q) {
@@ -16,9 +16,9 @@ export function validateCorrections(payload) {
   if (payload?.version !== 1 || !Array.isArray(payload.corrections) || payload.corrections.length > 10000) throw new Error('Invalid topic feedback file.');
   const map = new Map();
   for (const entry of payload.corrections) {
-    if (!entry || typeof entry.key !== 'string' || !/^(Commons|Lords):[^:]{1,80}:\d{4}-\d{2}-\d{2}$/.test(entry.key) || !TOPICS.includes(entry.topic) || !Array.isArray(entry.features) || entry.features.length > 200 || !entry.features.every(f => typeof f === 'string' && /^[a-z][a-z-]{1,80}$/.test(f)) || typeof entry.updatedAt !== 'string' || !Number.isFinite(Date.parse(entry.updatedAt))) throw new Error('Invalid topic feedback entry.');
-    const clean = {key:entry.key, topic:entry.topic, features:[...new Set(entry.features)], updatedAt:entry.updatedAt};
-    if (TOPICS.includes(entry.originalTopic)) clean.originalTopic = entry.originalTopic;
+    if (!entry || typeof entry.key !== 'string' || !/^(Commons|Lords):[^:]{1,80}:\d{4}-\d{2}-\d{2}$/.test(entry.key) || !TOPICS.includes(canonicalTopic(entry.topic)) || !Array.isArray(entry.features) || entry.features.length > 200 || !entry.features.every(f => typeof f === 'string' && /^[a-z][a-z-]{1,80}$/.test(f)) || typeof entry.updatedAt !== 'string' || !Number.isFinite(Date.parse(entry.updatedAt))) throw new Error('Invalid topic feedback entry.');
+    const clean = {key:entry.key, topic:canonicalTopic(entry.topic), features:[...new Set(entry.features)], updatedAt:entry.updatedAt};
+    if (TOPICS.includes(canonicalTopic(entry.originalTopic))) clean.originalTopic = canonicalTopic(entry.originalTopic);
     const existing = map.get(clean.key);
     if (!existing || clean.updatedAt > existing.updatedAt) map.set(clean.key, clean);
   }
@@ -33,10 +33,11 @@ export function topicDecision(q, corrections = []) {
   const matches = corrections.map(entry => {
     const shared = entry.features.filter(f => features.has(f)).length;
     const union = new Set([...features, ...entry.features]).size;
-    return {topic:entry.topic, shared, score:union ? shared / union : 0};
+    return {topic:canonicalTopic(entry.topic), shared, score:union ? shared / union : 0};
   }).filter(match => match.shared >= 4 && match.score >= .5).sort((a,b) => b.score-a.score);
   const best = matches[0];
   // Two independently corrected PQs must agree. Conflicting close examples block learning.
   if (best?.score >= .65 && matches.filter(m => m.topic === best.topic).length >= 2 && !matches.some(m => m.topic !== best.topic && m.score >= best.score-.15)) return {topic:best.topic, source:'learned', originalTopic};
   return {topic:originalTopic, source:'rules', originalTopic};
 }
+
