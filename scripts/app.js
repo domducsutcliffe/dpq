@@ -230,6 +230,7 @@ const elements = {
   monthlyChart: document.querySelector("#monthly-chart"),
   partyChart: document.querySelector("#party-chart"),
   regionChart: document.querySelector("#region-chart"),
+  topicsChart: document.querySelector("#topics-chart"),
   topicFilter: document.querySelector("#topic-filter"),
   timeRange: document.querySelector("#time-range"),
   chartViews: document.querySelector("#chart-views"),
@@ -925,23 +926,23 @@ elements.monthlyChart.addEventListener("keydown", event => {
 });
 function renderTopicHistogram(items) {
   state.chartPoints = [];
-  const rows = TOPICS.map(topic => ({ topic, answered: 0, unanswered: 0 }));
+  const rows = TOPICS.map(topic => ({ topic, count: 0 }));
   for (const question of items) {
     const row = rows.find(row => row.topic === getQuestionTopic(question));
-    row[question.answered ? "answered" : "unanswered"]++;
+    row.count++;
   }
   const width = Math.max(780, elements.monthlyChart.clientWidth - 16);
   const height = 340, pad = 36, bottom = 115, plotHeight = height - pad - bottom;
-  const max = Math.max(1, ...rows.map(row => row.answered + row.unanswered));
+  const max = Math.max(1, ...rows.map(row => row.count));
   const step = (width - pad * 2) / rows.length;
   elements.monthlyRange.textContent = elements.timeRange.selectedOptions[0].textContent;
-  elements.monthlyChart.innerHTML = `<div class="chart-legend"><span class="legend-answered">Answered</span><span class="legend-unanswered">Unanswered</span></div><div class="topic-plot"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="PQ volume by topic, stacked by answer status">
+  elements.monthlyChart.innerHTML = `<div class="topic-plot"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Total PQ volume by topic">
     ${[0, .25, .5, .75, 1].map(f => `<line class="topic-grid" x1="${pad}" x2="${width-pad}" y1="${height-bottom-f*plotHeight}" y2="${height-bottom-f*plotHeight}"/><text x="${pad-5}" y="${height-bottom-f*plotHeight+3}" text-anchor="end" font-size="10">${Math.round(max*f)}</text>`).join("")}
     ${rows.map((row, index) => {
       const x = pad + index * step + step * .15, w = step * .7;
-      const a = row.answered / max * plotHeight, u = row.unanswered / max * plotHeight;
-      const total = row.answered + row.unanswered;
-      return `<g class="topic-column${state.selectedTopic === row.topic ? " active" : ""}" data-topic="${escapeHtml(row.topic)}" role="button" tabindex="0" aria-label="${escapeHtml(row.topic)}: ${total} PQs, ${row.answered} answered, ${row.unanswered} unanswered" aria-pressed="${state.selectedTopic === row.topic}"><title>${escapeHtml(row.topic)}: ${total} PQs (${row.answered} answered, ${row.unanswered} unanswered)</title><rect class="topic-hit" x="${x}" y="${pad}" width="${w}" height="${plotHeight}"/><rect class="stack-answered" x="${x}" y="${height-bottom-a}" width="${w}" height="${a}"/><rect class="stack-unanswered" x="${x}" y="${height-bottom-a-u}" width="${w}" height="${u}"/><text x="${x+w/2}" y="${height-bottom-a-u-5}" text-anchor="middle" font-size="10">${total}</text><text transform="translate(${x+w/2},${height-bottom+14}) rotate(-45)" text-anchor="end" font-size="10">${escapeHtml(row.topic)}</text></g>`;
+      const total = row.count;
+      const barHeight = total / max * plotHeight;
+      return `<g class="topic-column${state.selectedTopic === row.topic ? " active" : ""}" data-topic="${escapeHtml(row.topic)}" role="button" tabindex="0" aria-label="${escapeHtml(row.topic)}: ${total} PQs" aria-pressed="${state.selectedTopic === row.topic}"><title>${escapeHtml(row.topic)}: ${total} PQs</title><rect class="topic-hit" x="${x}" y="${pad}" width="${w}" height="${plotHeight}"/><rect class="topic-bar" x="${x}" y="${height-bottom-barHeight}" width="${w}" height="${barHeight}"/><text x="${x+w/2}" y="${height-bottom-barHeight-5}" text-anchor="middle" font-size="10">${total}</text><text transform="translate(${x+w/2},${height-bottom+14}) rotate(-45)" text-anchor="end" font-size="10">${escapeHtml(row.topic)}</text></g>`;
     }).join("")}</svg></div>`;
 }
 
@@ -963,7 +964,7 @@ function renderBars(container, rows, options = {}) {
             return `
               <div class="bar-row${isActive ? " active" : ""}" data-key="${escapeHtml(row.key)}">
                 <span class="bar-label" title="${escapeHtml(row.key)}">${escapeHtml(row.key)}</span>
-                <span class="bar-track"><span class="bar-fill" style="width:${Math.max(3, (row.count / max) * 100)}%"></span></span>
+                <span class="bar-track"><span class="bar-fill" style="width:${row.count ? Math.max(3, (row.count / max) * 100) : 0}%"></span></span>
                 <span class="bar-value">${formatNumber.format(row.count)}</span>
               </div>
             `;
@@ -1390,6 +1391,12 @@ function render() {
   const partyChartFiltered = getStatisticsQuestions(false, false, true, false);
   const regionChartFiltered = getStatisticsQuestions(false, false, false, true);
 
+  const topicCounts = new Map(countBy(getStatisticsQuestions(false, true), getQuestionTopic).map(row => [row.key, row.count]));
+  renderBars(elements.topicsChart, TOPICS.map(key => ({ key, count: topicCounts.get(key) || 0 })), { limit: TOPICS.length, selectedKey: state.selectedTopic });
+  elements.topicsChart.querySelectorAll(".bar-row").forEach(row => {
+    row.setAttribute("role", "button"); row.tabIndex = 0;
+    row.setAttribute("aria-pressed", String(row.dataset.key === state.selectedTopic));
+  });
   renderScopeStatus(filtered.length);
   renderMetrics(getStatisticsQuestions());
   elements.topicFilter.value = state.selectedTopic;
@@ -1719,6 +1726,18 @@ elements.regionFilter.addEventListener("change", (event) => {
 elements.answerFilter.addEventListener("change", (event) => {
   state.answer = event.target.value;
   render();
+});
+
+elements.topicsChart.addEventListener("click", event => {
+  const row = event.target.closest(".bar-row");
+  if (!row) return;
+  state.selectedTopic = state.selectedTopic === row.dataset.key ? "" : row.dataset.key;
+  render();
+});
+elements.topicsChart.addEventListener("keydown", event => {
+  if ((event.key === "Enter" || event.key === " ") && event.target.matches(".bar-row")) {
+    event.preventDefault(); event.target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
 });
 
 elements.partyChart.addEventListener("click", (event) => {
@@ -2107,6 +2126,7 @@ document.addEventListener("click", (event) => {
     (elements.regionFilter && elements.regionFilter.contains(event.target)) ||
     (elements.houseViews && elements.houseViews.contains(event.target)) ||
     (elements.timeRange && elements.timeRange.contains(event.target)) ||
+    (elements.topicsChart && elements.topicsChart.contains(event.target)) ||
     (elements.topicFilter && elements.topicFilter.contains(event.target)) ||
     (elements.chartViews && elements.chartViews.contains(event.target)) ||
     (elements.answerFilter && elements.answerFilter.contains(event.target)) ||

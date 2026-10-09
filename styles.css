@@ -1248,9 +1248,8 @@ table th {
 .chart-views button { padding:6px 10px; border:1px solid var(--line); background:var(--panel, #fff); font:inherit; font-size:11px; cursor:pointer; }
 .chart-views button[aria-pressed="true"] { background:var(--accent, #ff6600); color:white; }
 .collapsible.collapsed .chart-views { display:none; }
-.monthly-bar, .stack-answered { fill:#006548; cursor:pointer; }
+.monthly-bar, .topic-bar { fill:#006548; cursor:pointer; }
 .monthly-bar:hover, .monthly-bar.active { fill:#ff6600; }
-.stack-unanswered { fill:#d9a441; }
 .topic-plot { overflow-x:auto; }
 .topic-plot svg { min-width:780px; }
 .topic-hit { fill:transparent; }
@@ -1258,10 +1257,8 @@ table th {
 .topic-column:hover, .topic-column.active { opacity:.75; }
 .topic-column.active .topic-hit { fill:#ff660015; stroke:#ff6600; }
 .topic-grid { stroke:var(--line); stroke-width:1; }
-.chart-legend { display:flex; gap:16px; font-size:11px; margin:8px 0; }
-.chart-legend span::before { content:""; display:inline-block; width:9px; height:9px; margin-right:5px; }
-.legend-answered::before { background:#006548; }
-.legend-unanswered::before { background:#d9a441; }
 
 .topic-plot svg { height:340px; }
 .question-category { font-size:10px; color:var(--muted); margin:3px 0; }
+
+#topics-chart .bar-row:focus-visible { outline:2px solid var(--accent, #ff6600); outline-offset:2px; }
