@@ -488,8 +488,15 @@ function topicEditor(question) {
   const automatic = topicDecision(question, corrections.filter(entry => entry.key !== questionKey(question)));
   return `<select class="topic-editor" data-topic-key="${escapeHtml(questionKey(question))}" aria-label="Topic for PQ ${escapeHtml(question.uin)}" title="${decision.source === 'manual' ? 'Your saved correction' : decision.source === 'learned' ? 'Suggested from matching corrections' : 'Assigned from categorisation rules'}"><option value=""${decision.source !== 'manual' ? ' selected' : ''}>${automatic.source === 'learned' ? 'Learned' : 'Auto'} — ${escapeHtml(automatic.topic)}</option>${TOPICS.map(topic => `<option value="${escapeHtml(topic)}"${decision.source === 'manual' && decision.topic === topic ? ' selected' : ''}>${escapeHtml(topic)}</option>`).join("")}</select>`;
 }
+document.querySelector("#dev-mode").addEventListener("change", event => {
+  document.querySelector("#topic-feedback-controls").hidden = !event.target.checked;
+});
+
 function renderFeedbackStatus(message = "") {
   const node = document.querySelector("#topic-feedback-status");
+  const notice = document.querySelector("#topic-edit-notice");
+  notice.textContent = message || feedbackStorageError;
+  notice.hidden = !notice.textContent;
   node.textContent = message || feedbackStorageError || `${corrections.length} saved topic corrections · saved in this browser`;
   document.querySelector("#export-topic-feedback").disabled = corrections.length === 0;
 }

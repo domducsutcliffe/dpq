@@ -1271,3 +1271,8 @@ table th {
 .topic-feedback-controls details { flex-basis:100%; color:var(--muted); }
 .topic-feedback-controls summary { cursor:pointer; }
 .topic-feedback-controls p { max-width:800px; line-height:1.5; }
+
+.topic-feedback-controls[hidden], .topic-edit-notice[hidden] { display:none; }
+.dev-mode-toggle { display:inline-flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); cursor:pointer; white-space:nowrap; }
+.dev-mode-toggle input { width:12px; height:12px; min-height:0; margin:0; }
+.topic-edit-notice { margin:6px 0; font-size:11px; color:var(--muted); }
