@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=house-colours-2" />
+    <link rel="stylesheet" href="styles.css?v=policy-topics-1" />
   </head>
   <body>
     <header class="topbar" data-house="Combined">
@@ -77,6 +77,7 @@
           <label><input type="checkbox" name="period" value="sunak" /> Sunak</label>
           <label class="short-mode" title="Drop the &quot;To ask the Secretary of State for Health and Social Care,&quot; opening from each question in the table"><input id="short-mode" type="checkbox" /> Short mode</label>
         </fieldset>
+        <select id="topic-filter" aria-label="Topic filter"><option value="">All topics</option></select>
         <select id="party-filter" aria-label="Party filter">
           <option value="">All parties</option>
         </select>
@@ -88,6 +89,13 @@
           <option value="answered">Answered</option>
           <option value="unanswered">Unanswered</option>
         </select>
+        <select id="time-range" aria-label="Question date range">
+          <option value="1">Past Month</option>
+          <option value="3">Past Quarter</option>
+          <option value="6">Past 6 months</option>
+          <option value="12">Past 12 months</option>
+          <option value="current" selected>Current Parliament</option>
+        </select>
         <button id="reset-filters" class="btn-reset" type="button">Reset Filters</button>
       </section>
 
@@ -95,18 +103,15 @@
         <article class="panel collapsible collapsed">
           <div class="panel-head">
             <h2><button class="panel-toggle" type="button" aria-expanded="false"
-              aria-controls="monthly-chart"><span class="chev" aria-hidden="true"></span>Monthly volume</button></h2>
+              aria-controls="monthly-chart"><span class="chev" aria-hidden="true"></span>PQ volume</button></h2>
             <span id="monthly-range"></span>
           </div>
-          <div id="monthly-chart" class="chart chart-line"></div>
-        </article>
-        <article class="panel collapsible collapsed">
-          <div class="panel-head">
-            <h2><button class="panel-toggle" type="button" aria-expanded="false"
-              aria-controls="theme-chart"><span class="chev" aria-hidden="true"></span>Hot topics</button></h2>
-            <span>question volume</span>
+          <div id="chart-views" class="chart-views" role="group" aria-label="Chart view">
+            <button type="button" data-chart="line" aria-pressed="true">Line chart</button>
+            <button type="button" data-chart="monthly" aria-pressed="false">Monthly histogram</button>
+            <button type="button" data-chart="topics" aria-pressed="false">Stacked topic histogram</button>
           </div>
-          <div id="theme-chart" class="chart chart-bars"></div>
+          <div id="monthly-chart" class="chart chart-line"></div>
         </article>
         <article class="panel collapsible collapsed">
           <div class="panel-head">
@@ -161,6 +166,7 @@
     <div id="chart-tooltip" class="chart-tooltip" style="opacity: 0; pointer-events: none; position: absolute; z-index: 1000;"></div>
     <div id="answer-tooltip" class="answer-tooltip" role="tooltip"></div>
     <div id="similar-panel" class="similar-panel" role="dialog" aria-label="Similar questions" hidden></div>
-    <script src="scripts/app.js?v=house-colours-2" type="module"></script>
+    <script src="scripts/app.js?v=policy-topics-1" type="module"></script>
   </body>
 </html>
+

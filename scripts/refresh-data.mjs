@@ -5,6 +5,7 @@ import { pbkdf2Sync, createDecipheriv } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getVertical, DEFAULT_VERTICAL_ID } from "../config.js";
+import { classifyQuestion, TOPICS } from "./topics.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -29,7 +30,6 @@ const CONSTITUENCY_2020_CSV =
   "https://open-geography-portalx-ons.hub.arcgis.com/api/download/v1/items/0dbc00e2529e42b1807e04ddb1da6df5/csv?layers=0";
 const PARL10_TO_PARL25_CSV =
   "https://pages.mysociety.org/2025-constituencies/data/geographic_overlaps/latest/PARL10_PARL25_combo_overlap.csv";
-const TOPIC_TAXONOMY_PATH = path.join(verticalDir, "topic-taxonomy.json");
 
 const PAGE_SIZE = Number(process.env.PAGE_SIZE || 100);
 const SOURCE_PARAMS = {
@@ -62,182 +62,6 @@ const NHS_REGION_BY_PARLIAMENT_REGION = new Map([
 ]);
 
 const DEVOLVED_NATIONS = new Set(["Scotland", "Wales", "Northern Ireland"]);
-const STOPWORDS = new Set([
-  "a", "an", "and", "any", "are", "as", "at", "be", "been", "being", "by", "for", "from", "has",
-  "have", "how", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the", "their", "them",
-  "there", "these", "this", "those", "to", "was", "were", "what", "when", "where", "which", "who",
-  "why", "will", "with", "would", "could", "should", "department", "health", "social", "care",
-  "asked", "ask", "minister", "state", "secretary", "whether", "if", "made", "make", "plans",
-  "plan", "number", "many", "dentistry", "dental", "dentist", "dentists",
-]);
-const TOPIC_WINDOW_MONTHS = 6;
-const TOPIC_MIN_COUNT = 3;
-const TOPIC_LIMIT = 8;
-const POLICY_TERMS = [
-  "nhs",
-  "contract",
-  "uda",
-  "workforce",
-  "recruit",
-  "retain",
-  "waiting",
-  "access",
-  "appointment",
-  "charge",
-  "afford",
-  "fluor",
-  "prevention",
-  "oral health",
-  "children",
-  "commission",
-  "icb",
-  "covid",
-  "pandemic",
-  "training",
-  "education",
-  "dent",
-];
-
-function simpleHash(value) {
-  let hash = 2166136261;
-  const text = String(value || "");
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-function toTopicText(question) {
-  return `${question.heading || ""} ${question.questionText || ""}`.toLowerCase();
-}
-
-function normaliseTopicToken(token) {
-  return token.replace(/[^a-z0-9-]+/g, "").replace(/^-+|-+$/g, "");
-}
-
-function extractTopicPhrases(text) {
-  const rawTokens = text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]+/g, " ")
-    .split(/\s+/)
-    .map(normaliseTopicToken)
-    .filter(Boolean);
-
-  const tokens = rawTokens.filter(
-    (token) => token.length >= 3 && !STOPWORDS.has(token) && !/^\d+$/.test(token),
-  );
-  const phrases = new Set();
-  for (let i = 0; i < tokens.length; i += 1) {
-    const one = tokens[i];
-    if (!STOPWORDS.has(one)) phrases.add(one);
-    if (i + 1 < tokens.length) {
-      const two = `${tokens[i]} ${tokens[i + 1]}`;
-      if (!STOPWORDS.has(tokens[i]) && !STOPWORDS.has(tokens[i + 1])) phrases.add(two);
-    }
-    if (i + 2 < tokens.length) {
-      const three = `${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]}`;
-      if (!STOPWORDS.has(tokens[i]) && !STOPWORDS.has(tokens[i + 1]) && !STOPWORDS.has(tokens[i + 2])) {
-        phrases.add(three);
-      }
-    }
-  }
-  return [...phrases];
-}
-
-function normaliseForMatch(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function titleCase(value) {
-  return String(value || "")
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-async function loadTopicTaxonomy() {
-  let raw;
-  try {
-    raw = await readFile(TOPIC_TAXONOMY_PATH, "utf8");
-  } catch {
-    // A new vertical may not have a curated taxonomy yet — degrade gracefully so the
-    // dashboard still builds (every question simply falls under "General").
-    console.log(`No topic taxonomy at ${TOPIC_TAXONOMY_PATH}; using empty taxonomy.`);
-    return { version: "none", concepts: [] };
-  }
-  const parsed = JSON.parse(raw);
-  const concepts = (parsed.concepts || []).map((concept) => ({
-    label: concept.label,
-    aliases: (concept.aliases || []).map(normaliseForMatch).filter(Boolean),
-  }));
-  return {
-    version: parsed.version || "unknown",
-    concepts,
-  };
-}
-
-function matchQuestionConcepts(normalisedText, taxonomy) {
-  const hits = [];
-  for (const concept of taxonomy.concepts) {
-    if (concept.aliases.some((alias) => alias && normalisedText.includes(alias))) {
-      hits.push(concept.label);
-    }
-  }
-  return hits;
-}
-
-function buildMonthFingerprint(monthQuestions) {
-  const canonical = monthQuestions
-    .map((q) => `${q.id}|${q.uin}|${q.dateTabled}|${simpleHash(toTopicText(q))}`)
-    .sort()
-    .join("||");
-  return simpleHash(canonical);
-}
-
-function previousMonths(month, orderedMonths, count) {
-  const idx = orderedMonths.indexOf(month);
-  if (idx <= 0) return [];
-  return orderedMonths.slice(Math.max(0, idx - count), idx);
-}
-
-function computeMonthlyTopics(month, monthConceptCounts, monthTotals, orderedMonths) {
-  const conceptCounts = monthConceptCounts.get(month) || new Map();
-  const monthTotal = monthTotals.get(month) || 1;
-  const trailingMonths = previousMonths(month, orderedMonths, TOPIC_WINDOW_MONTHS);
-
-  const rows = [];
-  for (const [label, count] of conceptCounts.entries()) {
-    if (count < TOPIC_MIN_COUNT) continue;
-    const volumeScore = count / monthTotal;
-
-    let baselineAvg = 0;
-    if (trailingMonths.length) {
-      const trailingCounts = trailingMonths.map((m) => monthConceptCounts.get(m)?.get(label) || 0);
-      baselineAvg = trailingCounts.reduce((sum, value) => sum + value, 0) / trailingCounts.length;
-    }
-    const spikeScore = (count + 1) / (baselineAvg + 1);
-    const score = volumeScore * 0.6 + Math.log1p(spikeScore) * 0.4;
-
-    rows.push({
-      label,
-      count,
-      score: Number(score.toFixed(6)),
-      volumeScore: Number(volumeScore.toFixed(6)),
-      spikeScore: Number(spikeScore.toFixed(6)),
-    });
-  }
-
-  return rows
-    .sort((a, b) => b.score - a.score || b.count - a.count || a.label.localeCompare(b.label))
-    .slice(0, TOPIC_LIMIT);
-}
-
 // Decrypt an AES-256-GCM envelope produced by scripts/encrypt-data.mjs
 // ({salt,iv,tag,data} base64 + PBKDF2 iterations). Mirrors the browser's deriveKey.
 function decryptEnvelope(envelopeText, password) {
@@ -719,16 +543,12 @@ function buildSummary(
   questions,
   constituencyRecords,
   unmatchedConstituencies,
-  taxonomy,
-  previousSummary = null,
 ) {
   const partyCounts = new Map();
   const partyNames = new Map();
   const regionCounts = new Map();
   const memberCounts = new Map();
   const monthly = new Map();
-  const monthQuestions = new Map();
-  const monthConceptCounts = new Map();
   let answered = 0;
 
   for (const question of questions) {
@@ -751,8 +571,6 @@ function buildSummary(
         byRegion: {},
       });
     }
-    if (!monthQuestions.has(month)) monthQuestions.set(month, []);
-    monthQuestions.get(month).push(question);
     const bucket = monthly.get(month);
     bucket.total += 1;
     bucket[question.answered ? "answered" : "unanswered"] += 1;
@@ -767,41 +585,6 @@ function buildSummary(
     name: partyNames.get(party.key) || party.key,
   }));
   const sortedMonthlyRows = [...monthly.values()].sort((a, b) => a.month.localeCompare(b.month));
-  const orderedMonths = sortedMonthlyRows.map((m) => m.month);
-
-  for (const month of orderedMonths) {
-    const counts = new Map();
-    for (const q of monthQuestions.get(month) || []) {
-      if (q.topic && q.topic !== "General") {
-        counts.set(q.topic, (counts.get(q.topic) || 0) + 1);
-      }
-    }
-    monthConceptCounts.set(month, counts);
-  }
-
-  const prevTopics = previousSummary?.topics || {};
-  const prevFingerprints = prevTopics.monthFingerprints || {};
-  const prevByMonth = prevTopics.byMonth || {};
-  const prevMethodMatches =
-    prevTopics.method === "taxonomy-plus-trends" && prevTopics.taxonomyVersion === taxonomy.version;
-  const monthFingerprints = {};
-  const byMonth = {};
-  const monthTotals = new Map(sortedMonthlyRows.map((row) => [row.month, row.total]));
-
-  for (const month of orderedMonths) {
-    const fingerprint = buildMonthFingerprint(monthQuestions.get(month) || []);
-    monthFingerprints[month] = fingerprint;
-    const unchanged = prevMethodMatches && prevFingerprints[month] && prevFingerprints[month] === fingerprint;
-    const previousRows = prevByMonth[month];
-    const previousShapeValid =
-      Array.isArray(previousRows) && previousRows.every((row) => typeof row?.label === "string");
-    if (unchanged && previousShapeValid) {
-      byMonth[month] = prevByMonth[month];
-      continue;
-    }
-    byMonth[month] = computeMonthlyTopics(month, monthConceptCounts, monthTotals, orderedMonths);
-  }
-
   return {
     generatedAt: new Date().toISOString(),
     source: {
@@ -828,115 +611,9 @@ function buildSummary(
     regions: sortedCounts(regionCounts),
     topMembers: sortedCounts(memberCounts).slice(0, 20),
     monthly: sortedMonthlyRows,
-    topics: {
-      method: "taxonomy-plus-trends",
-      taxonomyVersion: taxonomy.version,
-      generatedAt: new Date().toISOString(),
-      monthFingerprints,
-      byMonth,
-    },
+    topics: { method: "fixed-policy-categories", categories: TOPICS },
     unmatchedConstituencies,
   };
-}
-
-function classifyQuestions(questions, taxonomy) {
-  const tokenize = (text) => {
-    return String(text || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .map((w) => w.trim())
-      .filter((w) => w.length > 2 && !STOPWORDS.has(w));
-  };
-
-  const df = new Map();
-  const docTokens = questions.map((q) => {
-    const headingTokens = tokenize(q.heading || "");
-    const questionTokens = tokenize(q.questionText || "");
-    const tokens = [...headingTokens, ...headingTokens, ...questionTokens];
-    const uniqueTokens = new Set(tokens);
-    for (const token of uniqueTokens) {
-      df.set(token, (df.get(token) || 0) + 1);
-    }
-    return tokens;
-  });
-
-  const N = questions.length;
-  const getIdf = (token) => {
-    const count = df.get(token) || 0;
-    if (count === 0) return 0;
-    return Math.log(1 + N / count);
-  };
-
-  const conceptVectors = taxonomy.concepts.map((concept) => {
-    const labelTokens = tokenize(concept.label);
-    const aliasTokens = (concept.aliases || []).flatMap((alias) => tokenize(alias));
-    const termWeights = new Map();
-    for (const t of labelTokens) {
-      termWeights.set(t, (termWeights.get(t) || 0) + 3.0);
-    }
-    for (const t of aliasTokens) {
-      termWeights.set(t, (termWeights.get(t) || 0) + 1.0);
-    }
-
-    const vector = new Map();
-    let magnitudeSq = 0;
-    for (const [term, weight] of termWeights.entries()) {
-      const idf = getIdf(term);
-      if (idf > 0) {
-        const val = weight * idf;
-        vector.set(term, val);
-        magnitudeSq += val * val;
-      }
-    }
-
-    return {
-      label: concept.label,
-      vector,
-      magnitude: Math.sqrt(magnitudeSq),
-    };
-  });
-
-  questions.forEach((q, idx) => {
-    const tokens = docTokens[idx];
-    const tf = new Map();
-    for (const token of tokens) {
-      tf.set(token, (tf.get(token) || 0) + 1);
-    }
-
-    const qVector = new Map();
-    let qMagnitudeSq = 0;
-    for (const [term, count] of tf.entries()) {
-      const idf = getIdf(term);
-      if (idf > 0) {
-        const val = count * idf;
-        qVector.set(term, val);
-        qMagnitudeSq += val * val;
-      }
-    }
-    const qMagnitude = Math.sqrt(qMagnitudeSq);
-
-    let bestLabel = "General";
-    let bestScore = 0;
-
-    if (qMagnitude > 0) {
-      for (const concept of conceptVectors) {
-        if (concept.magnitude === 0) continue;
-        let dotProduct = 0;
-        for (const [term, val] of qVector.entries()) {
-          const conceptVal = concept.vector.get(term) || 0;
-          dotProduct += val * conceptVal;
-        }
-        const score = dotProduct / (qMagnitude * concept.magnitude);
-        if (score > bestScore) {
-          bestScore = score;
-          bestLabel = concept.label;
-        }
-      }
-    }
-
-    q.topic = bestScore >= 0.03 ? bestLabel : "General";
-  });
 }
 
 async function main() {
@@ -964,7 +641,6 @@ async function main() {
     return;
   }
 
-  const taxonomy = await loadTopicTaxonomy();
   const { lookup, records: constituencyRecords } = await buildConstituencyLookup();
 
   const existingQuestions = await loadPreviousQuestions();
@@ -1087,9 +763,7 @@ async function main() {
 
   const commonsQuestions = questions.filter((question) => question.house === "Commons");
   const lordsQuestions = questions.filter((question) => question.house === "Lords");
-  // Lords must not change the Commons topic weights or any dashboard statistics.
-  classifyQuestions(commonsQuestions, taxonomy);
-  classifyQuestions(lordsQuestions, taxonomy);
+  for (const question of questions) question.topic = classifyQuestion(question);
 
   const unmatchedConstituencies = [
     ...new Set(
@@ -1104,8 +778,6 @@ async function main() {
     commonsQuestions,
     constituencyRecords,
     unmatchedConstituencies,
-    taxonomy,
-    previousSummary,
   );
 
   const collectionDates = questions.map((q) => q.dateTabled).filter(Boolean).sort();
@@ -1152,3 +824,4 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
+

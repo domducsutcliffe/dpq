@@ -114,6 +114,7 @@ if (document.readyState === "loading") {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { DEFAULT_VERTICAL_ID, getVertical } from "../config.js";
+import { TOPICS, classifyQuestion, rangeStart } from "./topics.mjs";
 
 const VERTICAL = getVertical(DEFAULT_VERTICAL_ID);
 
@@ -157,6 +158,8 @@ const state = {
   periods: ["current"],
   searchQuestionOnly: true,
   chartPoints: [],
+  chartView: "line",
+  timeRange: "current",
   selectedMonth: "",
   selectedTopic: "",
   // Drops the "To ask the Secretary of State…" pro forma from the front of each question
@@ -227,7 +230,9 @@ const elements = {
   monthlyChart: document.querySelector("#monthly-chart"),
   partyChart: document.querySelector("#party-chart"),
   regionChart: document.querySelector("#region-chart"),
-  themeChart: document.querySelector("#theme-chart"),
+  topicFilter: document.querySelector("#topic-filter"),
+  timeRange: document.querySelector("#time-range"),
+  chartViews: document.querySelector("#chart-views"),
   resultsCount: document.querySelector("#results-count"),
   exportButton: document.querySelector("#export-xlsx"),
   table: document.querySelector("#question-table"),
@@ -457,19 +462,10 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+const topicCache = new WeakMap();
 function getQuestionTopic(question) {
-  return question.topic || "General";
-}
-
-function getTopicCounts(questions) {
-  const counts = {};
-  for (const q of questions) {
-    const topic = getQuestionTopic(q);
-    counts[topic] = (counts[topic] || 0) + 1;
-  }
-  return Object.entries(counts)
-    .map(([key, count]) => ({ key, count }))
-    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  if (!topicCache.has(question)) topicCache.set(question, classifyQuestion(question));
+  return topicCache.get(question);
 }
 
 function countBy(items, getKey) {
@@ -601,6 +597,7 @@ function getFilteredQuestions(excludeMonth = false, excludeTopic = false, exclud
       if (m !== state.selectedMonth) return false;
     }
 
+    if (state.timeRange !== "current" && (question.dateTabled || "") < rangeStart(Number(state.timeRange))) return false;
     if (state.tabledSince && (question.dateTabled || "") < state.tabledSince) return false;
 
     if (!excludeTopic && state.selectedTopic) {
@@ -698,6 +695,7 @@ function renderScopeStatus(filteredCount) {
     const monthName = MONTH_NAMES[monthNum] || monthNum;
     footerText += ` Filtered to show only questions from ${monthName} ${year}.`;
   }
+  if (state.timeRange !== "current") footerText += ` Tabled from ${shortDate(rangeStart(Number(state.timeRange)))}.`;
   if (state.selectedTopic) {
     footerText += ` Filtered to show only questions under topic "${state.selectedTopic}".`;
   }
@@ -797,6 +795,19 @@ function renderLineChart(items, precomputed = null) {
       .map(([month, qs]) => [month, qs.length, qs]);
   }
 
+  if (months.length > 1) {
+    const byKey = new Map(months.map(row => [row[0], row]));
+    const cursor = new Date(months[0][0] + "-01T00:00:00Z");
+    const end = months.at(-1)[0];
+    const complete = [];
+    while (cursor.toISOString().slice(0, 7) <= end) {
+      const key = cursor.toISOString().slice(0, 7);
+      complete.push(byKey.get(key) || [key, 0, []]);
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    months = complete;
+  }
+
   if (!months.length) {
     state.chartPoints = [];
     elements.monthlyChart.innerHTML = '<p class="chart-note">No matching monthly data.</p>';
@@ -809,14 +820,15 @@ function renderLineChart(items, precomputed = null) {
   const height = 220;
   const pad = 28;
   const max = Math.max(...months.map(([, count]) => count), 1);
+  const barWidth = (width - pad * 2) / months.length;
   const step = months.length > 1 ? (width - pad * 2) / (months.length - 1) : 0;
   const points = months.map(([month, count, monthQuestions], index) => {
-    const x = pad + index * step;
+    const x = state.chartView === "monthly" ? pad + (index + 0.5) * barWidth : months.length === 1 ? width / 2 : pad + index * step;
     const y = height - pad - (count / max) * (height - pad * 2);
     // Topic breakdown needs the underlying questions; on the summary-only first paint the
     // tooltip just shows the month total until they load.
     const themeCounts = monthQuestions
-      ? getTopicCounts(monthQuestions).filter((t) => t.count > 0).slice(0, 5)
+      ? countBy(monthQuestions, getQuestionTopic).slice(0, 5)
       : [];
     return { month, count, x, y, themeCounts };
   });
@@ -860,12 +872,13 @@ function renderLineChart(items, precomputed = null) {
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Monthly dentistry PQ volume" style="--dot-r: ${dotR}px; --dot-r-active: ${dotRActive}px;">
       <line class="axis" x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}"></line>
       <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}"></line>
-      ${area ? `<path class="trend-area" d="${area}"></path>` : ""}
-      ${path ? `<path class="trend-line" d="${path}"></path>` : ""}
+      ${state.chartView === "line" && area ? `<path class="trend-area" d="${area}"></path>` : ""}
+      ${state.chartView === "line" && path ? `<path class="trend-line" d="${path}"></path>` : ""}
       ${points
         .map(
           (point, index) => {
             const isActive = point.month === state.selectedMonth;
+            if (state.chartView === "monthly") return `<rect class="monthly-bar${isActive ? " active" : ""}" x="${point.x - barWidth * .38}" y="${point.y}" width="${barWidth * .76}" height="${height - pad - point.y}" data-index="${index}" tabindex="0" role="button" aria-label="${point.month}: ${point.count} PQs"><title>${point.month}: ${point.count} PQs</title></rect>`;
             return `
               <circle class="data-point${isActive ? " active" : ""}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" data-index="${index}"></circle>
             `;
@@ -883,6 +896,53 @@ function renderLineChart(items, precomputed = null) {
       <text x="${pad + 3}" y="${pad - 7}" font-size="10" fill="#666">${max}</text>
     </svg>
   `;
+}
+
+
+function setTimeRange(value) {
+  state.timeRange = value;
+  state.tabledSince = "";
+  state.selectedMonth = "";
+  state.periods = [value === "current" ? "current" : "all"];
+  elements.timeRange.value = value;
+  elements.periodCheckboxes.forEach(cb => { cb.checked = cb.value === state.periods[0]; });
+}
+elements.topicFilter.innerHTML += TOPICS.map(topic => `<option>${escapeHtml(topic)}</option>`).join("");
+elements.topicFilter.addEventListener("change", event => { state.selectedTopic = event.target.value; render(); });
+elements.timeRange.addEventListener("change", event => { setTimeRange(event.target.value); renderSelects(); render(); });
+elements.chartViews.addEventListener("click", event => {
+  const button = event.target.closest("[data-chart]");
+  if (!button) return;
+  state.chartView = button.dataset.chart;
+  state.selectedMonth = "";
+  if (state.chartView === "topics") setTimeRange("12");
+  render();
+});
+elements.monthlyChart.addEventListener("keydown", event => {
+  if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-topic], .monthly-bar")) {
+    event.preventDefault(); event.target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
+});
+function renderTopicHistogram(items) {
+  state.chartPoints = [];
+  const rows = TOPICS.map(topic => ({ topic, answered: 0, unanswered: 0 }));
+  for (const question of items) {
+    const row = rows.find(row => row.topic === getQuestionTopic(question));
+    row[question.answered ? "answered" : "unanswered"]++;
+  }
+  const width = Math.max(780, elements.monthlyChart.clientWidth - 16);
+  const height = 340, pad = 36, bottom = 115, plotHeight = height - pad - bottom;
+  const max = Math.max(1, ...rows.map(row => row.answered + row.unanswered));
+  const step = (width - pad * 2) / rows.length;
+  elements.monthlyRange.textContent = elements.timeRange.selectedOptions[0].textContent;
+  elements.monthlyChart.innerHTML = `<div class="chart-legend"><span class="legend-answered">Answered</span><span class="legend-unanswered">Unanswered</span></div><div class="topic-plot"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="PQ volume by topic, stacked by answer status">
+    ${[0, .25, .5, .75, 1].map(f => `<line class="topic-grid" x1="${pad}" x2="${width-pad}" y1="${height-bottom-f*plotHeight}" y2="${height-bottom-f*plotHeight}"/><text x="${pad-5}" y="${height-bottom-f*plotHeight+3}" text-anchor="end" font-size="10">${Math.round(max*f)}</text>`).join("")}
+    ${rows.map((row, index) => {
+      const x = pad + index * step + step * .15, w = step * .7;
+      const a = row.answered / max * plotHeight, u = row.unanswered / max * plotHeight;
+      const total = row.answered + row.unanswered;
+      return `<g class="topic-column${state.selectedTopic === row.topic ? " active" : ""}" data-topic="${escapeHtml(row.topic)}" role="button" tabindex="0" aria-label="${escapeHtml(row.topic)}: ${total} PQs, ${row.answered} answered, ${row.unanswered} unanswered" aria-pressed="${state.selectedTopic === row.topic}"><title>${escapeHtml(row.topic)}: ${total} PQs (${row.answered} answered, ${row.unanswered} unanswered)</title><rect class="topic-hit" x="${x}" y="${pad}" width="${w}" height="${plotHeight}"/><rect class="stack-answered" x="${x}" y="${height-bottom-a}" width="${w}" height="${a}"/><rect class="stack-unanswered" x="${x}" y="${height-bottom-a-u}" width="${w}" height="${u}"/><text x="${x+w/2}" y="${height-bottom-a-u-5}" text-anchor="middle" font-size="10">${total}</text><text transform="translate(${x+w/2},${height-bottom+14}) rotate(-45)" text-anchor="end" font-size="10">${escapeHtml(row.topic)}</text></g>`;
+    }).join("")}</svg></div>`;
 }
 
 function getRowsAtLeastSnp(rows) {
@@ -980,6 +1040,7 @@ function renderTable(items) {
             <td class="question-cell">
               <button class="row-menu" type="button" data-row-menu="${escapeHtml(String(question.id))}" title="More — find similar questions" aria-label="Row actions">☰</button>
               <div class="question-heading">${escapeHtml(question.heading || "Written question")}</div>
+              <div class="question-category">${escapeHtml(getQuestionTopic(question))}</div>
               <div class="question-text">${escapeHtml(displayQuestionText(question))}</div>
               <span class="status-pill ${question.answered ? "answered" : "unanswered"}${hasAnswer ? " has-answer-tip" : ""}"${hasAnswer ? ` data-qid="${escapeHtml(String(question.id))}"` : ""}>
                 <span class="status-dot ${question.answered ? "green" : "amber"}"></span>
@@ -1326,17 +1387,15 @@ function render() {
 
   const filtered = getFilteredQuestions();
   const lineChartFiltered = getStatisticsQuestions(true, false, false, false);
-  const themeChartFiltered = getStatisticsQuestions(false, true, false, false);
   const partyChartFiltered = getStatisticsQuestions(false, false, true, false);
   const regionChartFiltered = getStatisticsQuestions(false, false, false, true);
 
   renderScopeStatus(filtered.length);
   renderMetrics(getStatisticsQuestions());
-  renderLineChart(lineChartFiltered);
-  renderBars(elements.themeChart, getTopicCounts(themeChartFiltered), {
-    limit: 100,
-    selectedKey: state.selectedTopic
-  });
+  elements.topicFilter.value = state.selectedTopic;
+  elements.chartViews.querySelectorAll("button").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.chart === state.chartView)));
+  if (state.chartView === "topics") renderTopicHistogram(getStatisticsQuestions(true, true));
+  else renderLineChart(lineChartFiltered);
   renderBars(elements.partyChart, countBy(partyChartFiltered, (question) => question.member.partyAbbreviation || question.member.party), {
     limit: 30,
     snpFloor: true,
@@ -1614,6 +1673,9 @@ for (const checkbox of elements.periodCheckboxes) {
       }
     }
 
+    state.timeRange = "current";
+    elements.timeRange.value = "current";
+    state.tabledSince = "";
     state.periods = [...elements.periodCheckboxes]
       .filter((cb) => cb.checked)
       .map((cb) => cb.value);
@@ -1656,21 +1718,6 @@ elements.regionFilter.addEventListener("change", (event) => {
 
 elements.answerFilter.addEventListener("change", (event) => {
   state.answer = event.target.value;
-  render();
-});
-
-elements.themeChart.addEventListener("click", (event) => {
-  const row = event.target.closest(".bar-row");
-  if (!row) return;
-
-  const topic = row.getAttribute("data-key");
-  if (!topic) return;
-
-  if (state.selectedTopic === topic) {
-    state.selectedTopic = "";
-  } else {
-    state.selectedTopic = topic;
-  }
   render();
 });
 
@@ -1865,6 +1912,8 @@ window.addEventListener(
 // default "Current Parliament", so the period filter is left alone — it's only widened
 // when the selected period would exclude them and the button would return nothing.
 function applyRecentFilter(from) {
+  state.timeRange = "current";
+  elements.timeRange.value = "current";
   state.tabledSince = state.tabledSince === from ? "" : from;
   if (state.tabledSince && !isDateInSelectedPeriods(latestTabledDate())) {
     state.periods = ["all"];
@@ -1906,6 +1955,8 @@ elements.resetFilters.addEventListener("click", () => {
   state.selectedMonth = "";
   state.selectedTopic = "";
   state.tabledSince = "";
+  state.timeRange = "current";
+  elements.timeRange.value = "current";
 
   elements.search.value = "";
   if (elements.searchQuestionOnly) {
@@ -1927,7 +1978,7 @@ elements.resetFilters.addEventListener("click", () => {
 });
 
 elements.monthlyChart.addEventListener("mouseover", (event) => {
-  const dot = event.target.closest(".data-point");
+  const dot = event.target.closest(".data-point, .monthly-bar");
   if (!dot) return;
   const index = parseInt(dot.getAttribute("data-index"), 10);
   const point = state.chartPoints[index];
@@ -1965,17 +2016,19 @@ elements.monthlyChart.addEventListener("mousemove", (event) => {
 });
 
 elements.monthlyChart.addEventListener("mouseout", (event) => {
-  const dot = event.target.closest(".data-point");
+  const dot = event.target.closest(".data-point, .monthly-bar");
   if (!dot) return;
   elements.tooltip.style.opacity = "0";
 });
 
 elements.monthlyChart.addEventListener("click", (event) => {
   event.stopPropagation(); // Prevent document click handler from immediately clearing state.selectedMonth
-  if (state.chartPoints.length === 0) return;
+  const topic = event.target.closest("[data-topic]");
+  if (topic) { state.selectedTopic = state.selectedTopic === topic.dataset.topic ? "" : topic.dataset.topic; render(); return; }
+  if (state.chartView === "topics" || state.chartPoints.length === 0) return;
 
   // Direct dot click (or programmatic test events)
-  const dot = event.target.closest(".data-point");
+  const dot = event.target.closest(".data-point, .monthly-bar");
   if (dot) {
     const index = parseInt(dot.getAttribute("data-index"), 10);
     const point = state.chartPoints[index];
@@ -2053,6 +2106,9 @@ document.addEventListener("click", (event) => {
     (elements.partyFilter && elements.partyFilter.contains(event.target)) ||
     (elements.regionFilter && elements.regionFilter.contains(event.target)) ||
     (elements.houseViews && elements.houseViews.contains(event.target)) ||
+    (elements.timeRange && elements.timeRange.contains(event.target)) ||
+    (elements.topicFilter && elements.topicFilter.contains(event.target)) ||
+    (elements.chartViews && elements.chartViews.contains(event.target)) ||
     (elements.answerFilter && elements.answerFilter.contains(event.target)) ||
     (elements.searchQuestionOnly && elements.searchQuestionOnly.contains(event.target)) ||
 
@@ -2183,36 +2239,7 @@ loadData()
           allCb.dispatchEvent(new Event("change", { bubbles: true }));
         }
       }, 50);
-    } else if (window.location.search.includes("test-topic-click=true")) {
-      const row = document.querySelector('.bar-row[data-key="Access and Waiting Times"]');
-      if (row) {
-        row.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-      }
-    } else if (window.location.search.includes("test-reset-click=true")) {
-      // Set search query and some filters first
-      elements.search.value = "workforce";
-      elements.search.dispatchEvent(new Event("input", { bubbles: true }));
-      
-      const row = document.querySelector('.bar-row[data-key="Access and Waiting Times"]');
-      if (row) {
-        row.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-      }
-      
-      // Trigger reset click synchronously
-      elements.resetFilters.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    } else if (window.location.search.includes("test-multi-select=true")) {
-      const topicRow = document.querySelector('.bar-row[data-key="COVID-19"]');
-      if (topicRow) {
-        topicRow.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-      }
-      const partyRow = document.querySelector('.bar-row[data-key="Lab"]');
-      if (partyRow) {
-        partyRow.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-      }
-      const regionRow = document.querySelector('.bar-row[data-key="London"]');
-      if (regionRow) {
-        regionRow.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-      }
+
     }
   })
   .catch((error) => {
@@ -2236,3 +2263,4 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
     if (!collapsed) requestAnimationFrame(() => render());
   });
 });
+
