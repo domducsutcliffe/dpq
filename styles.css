@@ -1259,6 +1259,15 @@ table th {
 .topic-grid { stroke:var(--line); stroke-width:1; }
 
 .topic-plot svg { height:340px; }
-.question-category { font-size:10px; color:var(--muted); margin:3px 0; }
 
 #topics-chart .bar-row:focus-visible { outline:2px solid var(--accent, #ff6600); outline-offset:2px; }
+
+
+.topic-cell { min-width:170px; max-width:210px; }
+.topic-editor { width:100%; min-height:30px; font-size:11px; }
+.topic-feedback-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:8px 0; font-size:11px; }
+.topic-feedback-controls button, .feedback-import { border:1px solid var(--line); background:white; padding:5px 8px; cursor:pointer; font:inherit; }
+.feedback-import input { display:none; }
+.topic-feedback-controls details { flex-basis:100%; color:var(--muted); }
+.topic-feedback-controls summary { cursor:pointer; }
+.topic-feedback-controls p { max-width:800px; line-height:1.5; }

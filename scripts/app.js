@@ -115,6 +115,7 @@ if (document.readyState === "loading") {
 
 import { DEFAULT_VERTICAL_ID, getVertical } from "../config.js";
 import { TOPICS, classifyQuestion, rangeStart } from "./topics.mjs";
+import { questionKey, questionFeatures, validateCorrections, topicDecision } from "./topic-feedback.mjs";
 
 const VERTICAL = getVertical(DEFAULT_VERTICAL_ID);
 
@@ -463,10 +464,34 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-const topicCache = new WeakMap();
-function getQuestionTopic(question) {
-  if (!topicCache.has(question)) topicCache.set(question, classifyQuestion(question));
+const TOPIC_FEEDBACK_KEY = `pq-topic-feedback-v1:${VERTICAL.id}`;
+let corrections = [];
+let feedbackStorageError = "";
+try {
+  const stored = localStorage.getItem(TOPIC_FEEDBACK_KEY);
+  if (stored) corrections = validateCorrections(JSON.parse(stored));
+} catch { feedbackStorageError = "Saved topic feedback could not be read."; }
+let topicCache = new WeakMap();
+function getTopicDecision(question) {
+  if (!topicCache.has(question)) topicCache.set(question, topicDecision(question, corrections));
   return topicCache.get(question);
+}
+function getQuestionTopic(question) { return getTopicDecision(question).topic; }
+function persistCorrections(next) {
+  localStorage.setItem(TOPIC_FEEDBACK_KEY, JSON.stringify({version:1, corrections:next}));
+  corrections = next;
+  feedbackStorageError = "";
+  topicCache = new WeakMap();
+}
+function topicEditor(question) {
+  const decision = getTopicDecision(question);
+  const automatic = topicDecision(question, corrections.filter(entry => entry.key !== questionKey(question)));
+  return `<select class="topic-editor" data-topic-key="${escapeHtml(questionKey(question))}" aria-label="Topic for PQ ${escapeHtml(question.uin)}" title="${decision.source === 'manual' ? 'Your saved correction' : decision.source === 'learned' ? 'Suggested from matching corrections' : 'Assigned from categorisation rules'}"><option value=""${decision.source !== 'manual' ? ' selected' : ''}>${automatic.source === 'learned' ? 'Learned' : 'Auto'} — ${escapeHtml(automatic.topic)}</option>${TOPICS.map(topic => `<option value="${escapeHtml(topic)}"${decision.source === 'manual' && decision.topic === topic ? ' selected' : ''}>${escapeHtml(topic)}</option>`).join("")}</select>`;
+}
+function renderFeedbackStatus(message = "") {
+  const node = document.querySelector("#topic-feedback-status");
+  node.textContent = message || feedbackStorageError || `${corrections.length} saved topic corrections · saved in this browser`;
+  document.querySelector("#export-topic-feedback").disabled = corrections.length === 0;
 }
 
 function countBy(items, getKey) {
@@ -1038,10 +1063,10 @@ function renderTable(items) {
             <td><span class="party-dot" title="${escapeHtml(question.member.party || question.member.partyAbbreviation || "Unknown")}">${partyEmoji(question)}</span> ${filterLink(question.member.name)} <span class="house-badge">${escapeHtml(questionHouse(question))}</span></td>
             <td>${questionHouse(question) === "Lords" ? "—" : filterLink(question.member.constituency)}</td>
             <td>${escapeHtml(question.region.nhsRegion || "-")}</td>
+            <td class="topic-cell">${topicEditor(question)}</td>
             <td class="question-cell">
               <button class="row-menu" type="button" data-row-menu="${escapeHtml(String(question.id))}" title="More — find similar questions" aria-label="Row actions">☰</button>
               <div class="question-heading">${escapeHtml(question.heading || "Written question")}</div>
-              <div class="question-category">${escapeHtml(getQuestionTopic(question))}</div>
               <div class="question-text">${escapeHtml(displayQuestionText(question))}</div>
               <span class="status-pill ${question.answered ? "answered" : "unanswered"}${hasAnswer ? " has-answer-tip" : ""}"${hasAnswer ? ` data-qid="${escapeHtml(String(question.id))}"` : ""}>
                 <span class="status-dot ${question.answered ? "green" : "amber"}"></span>
@@ -1370,7 +1395,7 @@ function paintFromSummary() {
   renderLineChart([], view.series);
   renderScopeStatus(view.totals.total);
   elements.resultsCount.textContent = "loading questions…";
-  elements.table.innerHTML = `<tr><td colspan="7" class="table-loading">Loading questions…</td></tr>`;
+  elements.table.innerHTML = `<tr><td colspan="8" class="table-loading">Loading questions…</td></tr>`;
 }
 
 function renderHouseViews() {
@@ -1381,6 +1406,7 @@ function renderHouseViews() {
 }
 
 function render() {
+  renderFeedbackStatus();
   renderHouseViews();
   if (state.selectedMonth && !isMonthInPeriods(state.selectedMonth)) {
     state.selectedMonth = "";
@@ -1452,7 +1478,7 @@ function exportRow(q, todayStr) {
     Status: q.answered ? "Answered" : "Unanswered",
     Overdue: q.answered ? "" : exportYesNo(overdue),
     "Named day": exportYesNo(q.isNamedDay),
-    Subject: getQuestionTopic(q),
+    Topic: getQuestionTopic(q),
     Member: q.member?.name || "",
     Party: q.member?.party || q.member?.partyAbbreviation || "",
     Constituency: q.member?.constituency || "",
@@ -1649,6 +1675,39 @@ async function loadData() {
   if (overlay) overlay.remove();
   document.querySelector(".page").style.display = "";
 }
+
+elements.table.addEventListener("change", event => {
+  const editor = event.target.closest(".topic-editor");
+  if (!editor) return;
+  const question = state.questions.find(q => questionKey(q) === editor.dataset.topicKey);
+  if (!question) return;
+  const next = corrections.filter(entry => entry.key !== editor.dataset.topicKey);
+  if (TOPICS.includes(editor.value)) next.push({key:questionKey(question), topic:editor.value, originalTopic:classifyQuestion(question), features:questionFeatures(question), updatedAt:new Date().toISOString()});
+  try {
+    persistCorrections(next);
+    render();
+    renderFeedbackStatus(`Saved topic for PQ ${question.uin}. ${corrections.length} corrections saved in this browser.`);
+  } catch {
+    render(); renderFeedbackStatus("Could not save this correction. Browser storage is unavailable or full.");
+  }
+});
+document.querySelector("#export-topic-feedback").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify({version:1, corrections}, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob), link = document.createElement("a");
+  link.href = url; link.download = `dentistry-topic-feedback-${new Date().toISOString().slice(0,10)}.json`;
+  link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+document.querySelector("#import-topic-feedback").addEventListener("change", async event => {
+  const file = event.target.files[0]; if (!file) return;
+  try {
+    if (file.size > 5000000) throw new Error("Topic feedback file is too large.");
+    const incoming = validateCorrections(JSON.parse(await file.text()));
+    const combined = validateCorrections({version:1, corrections:[...corrections, ...incoming]});
+    persistCorrections(combined); render();
+    renderFeedbackStatus(`Imported feedback. ${corrections.length} corrections saved in this browser.`);
+  } catch (error) { renderFeedbackStatus(error.message || "Could not import topic feedback."); }
+  event.target.value = "";
+});
 
 elements.search.addEventListener("input", (event) => {
   state.query = event.target.value;
@@ -2120,7 +2179,7 @@ document.addEventListener("click", (event) => {
   if (!state.selectedMonth) return;
 
   const isInsideChart = elements.monthlyChart.contains(event.target);
-  const isInsideFilterControl = 
+  const isInsideFilterControl = event.target.closest(".topic-editor, #topic-feedback-controls") || 
     (elements.search && elements.search.contains(event.target)) ||
     (elements.partyFilter && elements.partyFilter.contains(event.target)) ||
     (elements.regionFilter && elements.regionFilter.contains(event.target)) ||
@@ -2283,4 +2342,5 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
     if (!collapsed) requestAnimationFrame(() => render());
   });
 });
+
 

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=policy-topics-2" />
+    <link rel="stylesheet" href="styles.css?v=editable-topics-1" />
   </head>
   <body>
     <header class="topbar" data-house="Combined">
@@ -150,6 +150,12 @@
             </button>
           </div>
         </div>
+        <div id="topic-feedback-controls" class="topic-feedback-controls">
+          <span id="topic-feedback-status" role="status" aria-live="polite"></span>
+          <button id="export-topic-feedback" type="button">Export topic feedback</button>
+          <label class="feedback-import">Import topic feedback<input id="import-topic-feedback" type="file" accept=".json,application/json" /></label>
+          <details><summary>How corrections help</summary><p>Choose a topic in the table to correct a PQ. Edits survive dataset refreshes in this browser. Two closely matching corrected questions must agree before their topic is suggested for similar PQs. Conflicting feedback keeps the existing rules. Choose Auto to remove an edit. Export feedback to back it up, move it to another browser, or share it for review when updating the common categorisation rules.</p></details>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -160,6 +166,7 @@
                 <th>Member</th>
                 <th>Constituency</th>
                 <th>NHS region</th>
+                <th>Topic</th>
                 <th>Heading</th>
               </tr>
             </thead>
@@ -174,7 +181,8 @@
     <div id="chart-tooltip" class="chart-tooltip" style="opacity: 0; pointer-events: none; position: absolute; z-index: 1000;"></div>
     <div id="answer-tooltip" class="answer-tooltip" role="tooltip"></div>
     <div id="similar-panel" class="similar-panel" role="dialog" aria-label="Similar questions" hidden></div>
-    <script src="scripts/app.js?v=policy-topics-2" type="module"></script>
+    <script src="scripts/app.js?v=editable-topics-1" type="module"></script>
   </body>
 </html>
+
 
